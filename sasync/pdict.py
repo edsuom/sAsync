@@ -26,7 +26,7 @@ Dictionary-like objects with behind-the-scenes database persistence
 """
 
 # Imports
-from UserDict import DictMixin
+from collections import MutableMapping
 from twisted.internet import defer
 from misc import DeferredTracker
 
@@ -39,7 +39,7 @@ class AsyncError(Exception):
     """
 
 
-class PersistentDictBase(DictMixin, object):
+class PersistentDictBase(MutableMapping, object):
     """
     I am a base class for a database-persistent dictionary-like object uniquely
     identified by the hashable constructor argument I{ID}.
@@ -306,6 +306,12 @@ class PersistentDict(PersistentDictBase):
         self.writeTracker.put(d)
         return d
 
+    def __iter__(self):
+        """
+        B{Only for preload mode}: Iterate over all my keys.
+        """
+        return iter(self.iterkeys)
+
     def iteritems(self):
         """
         B{Only for preload mode}: Iterate over all my items.
@@ -336,6 +342,15 @@ class PersistentDict(PersistentDictBase):
         else:
             raise AsyncError("Can't iterate asynchronously")
 
+    def __len__(self):
+        """
+        Returns an immediate or deferred integer with my length, i.e.,
+        the number of keys.
+        """
+        if self.isPreloadMode:
+            return len(self.data)
+        return self.loadAll().addCallback(lambda x: len(x))
+
     def items(self):
         """
         Returns an immediate or deferred sequence of (name, value) tuples
@@ -343,8 +358,7 @@ class PersistentDict(PersistentDictBase):
         """
         if self.isPreloadMode:
             return self.data.items()
-        else:
-            return self.loadAll().addCallback(lambda x: x.items())
+        return self.loadAll().addCallback(lambda x: x.items())
             
     def values(self):
         """
@@ -352,8 +366,7 @@ class PersistentDict(PersistentDictBase):
         """
         if self.isPreloadMode:
             return self.data.values()
-        else:
-            return self.loadAll().addCallback(lambda x: x.values())
+        return self.loadAll().addCallback(lambda x: x.values())
 
     def get(self, *args):
         """
@@ -365,9 +378,8 @@ class PersistentDict(PersistentDictBase):
         def gotItem(loadedValue, key, defaultValue):
             if isinstance(loadedValue, items.Missing):
                 return defaultValue
-            else:
-                self.data[key] = loadedValue
-                return loadedValue
+            self.data[key] = loadedValue
+            return loadedValue
 
         key = args[0]
         if len(args) == 1:
@@ -393,22 +405,19 @@ class PersistentDict(PersistentDictBase):
                 d = self.writeTracker.deferToLast()
                 d.addCallback(lambda _: value)
                 return d
-            else:
-                self.data[key] = loadedValue
-                return loadedValue
+            self.data[key] = loadedValue
+            return loadedValue
 
         if self.isPreloadMode:
             if key in self.data:
                 return self.data[key]
-            else:
-                self.__setitem__(key, value)
-                return value
-        elif key in self.data:
+            self.__setitem__(key, value)
+            return value
+        if key in self.data:
             return defer.succeed(self.data[key])
-        else:
-            d = self.i.load(key)
-            d.addCallback(gotItem)
-            return d
+        d = self.i.load(key)
+        d.addCallback(gotItem)
+        return d
     
     def copy(self):
         """
@@ -417,8 +426,7 @@ class PersistentDict(PersistentDictBase):
         """
         if self.isPreloadMode:
             return self.data.copy()
-        else:
-            return self.loadAll()
+        return self.loadAll()
 
 
             
