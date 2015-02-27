@@ -9,7 +9,7 @@ conveniently managing database access, table setup, and
 transactions. Everything can be run in an asynchronous fashion using the
 Twisted framework and its deferred processing capabilities.
 
-Copyright (C) 2006-2007 by Edwin A. Suominen, U{http://www.eepatents.com}
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen, U{http://edsuom.com}
 
 
 Licensing
