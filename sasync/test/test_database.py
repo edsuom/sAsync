@@ -403,9 +403,8 @@ class TestPrimitives(TestCase):
 
 
 class TestTransactions(TestCase):
-    def setUpClass(self):
-        self.se = re.compile(r"sqlalchemy.+[eE]ngine")
-        self.st = re.compile(r"sqlalchemy.+[tT]able")
+    se = re.compile(r"sqlalchemy.+[eE]ngine")
+    st = re.compile(r"sqlalchemy.+[tT]able")
         
     def setUp(self):
         self.broker = MyBroker(DB_URL)

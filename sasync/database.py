@@ -298,7 +298,9 @@ class AccessBroker(object):
 
         def createEngine():
             url, kw = self.engineParams
-            # The 'threadlocal' keyword value is unchanged from SA 0.3 to 0.4
+            # The 'threadlocal' keyword value is unchanged from SA 0.3
+            # to 0.4. SA 0.5 says use strategy=threadlocal to have
+            # pool_threadlocal=True
             kw['strategy'] = 'threadlocal'
             return SA.create_engine(url, **kw)
         
