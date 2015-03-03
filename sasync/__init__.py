@@ -115,12 +115,6 @@ def engine(url, **kw):
 
     @type echo: C{False}
 
-    @keyword logger: a file-like object where logging output can be sent, if
-        echo is set to C{True}. Newlines will not be sent with log messages. This
-        defaults to an internal logging object which references sys.stdout.
-
-    @type logger: C{None}
-
     @keyword module: used by database implementations which support multiple
         DBAPI modules, this is a reference to a DBAPI2 module to be used
         instead of the engine's default module. For Postgres, the default is

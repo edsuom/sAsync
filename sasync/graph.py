@@ -197,15 +197,15 @@ class DiGraph(_Persistent, NX.DiGraph):
     adjacencyLists = ('adj', 'pred')
 
 
-class XGraph(_Persistent, NX.XGraph):
+class XGraph(_Persistent, NX.MultiGraph):
     """
-    Persistent version of L{NX.XGraph}
+    Persistent version of L{NX.MultiGraph}
     """
     adjacencyLists = ('adj',)
 
 
-class XDiGraph(_Persistent, NX.XDiGraph):
+class XDiGraph(_Persistent, NX.MultiDiGraph):
     """
-    Persistent version of L{NX.XDiGraph}
+    Persistent version of L{NX.MultiDiGraph}
     """
     adjacencyLists = ('adj', 'pred')
