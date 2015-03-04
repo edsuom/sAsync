@@ -33,20 +33,20 @@ from setuptools import setup
 
 
 ### Define requirements
-required = ['SQLAlchemy>=0.3', 'AsynQueue']
+required = ['SQLAlchemy>=0.5', 'AsynQueue']
 
 
 ### Define setup options
-kw = {'version':'0.7',
+kw = {'version':'0.8',
       'license':'GPL',
       'platforms':'OS Independent',
 
-      'url':"http://foss.eepatents.com/%s/" % NAME,
+      'url':"http://edsuom.com/foss/%s/" % NAME,
       'author':'Edwin A. Suominen',
-      'author_email':'ed@eepatents.com',
+      'author_email':'edsuom@yahoo.com',
       
       'maintainer':'Edwin A. Suominen',
-      'maintainer_email':'ed@eepatents.com',
+      'maintainer_email':'edsuom@yahoo.com',
       
       'install_requires':required,
       'packages':['sasync'],

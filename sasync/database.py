@@ -75,7 +75,30 @@ class DatabaseError(Exception):
     A problem occured when trying to access the database.
     """
 
+    
+class SelectAndResultHolder(object):
+    """
+    I am yielded by L{AccessBroker.selectorator} to let you work on my
+    internal select object and then call me for its result.
+    """
+    def __init__(self, sObject):
+        self._result = None
+        self._sObject = sObject
 
+    def _wrapper(self, *args, **kw):
+        self._sObject = getattr(self._sObject, self._methodName)(*args, **kw)
+        
+    def __getattr__(self, name):
+        obj = getattr(self._sObject, name)
+        if callable(obj):
+            self._methodName = name
+            return self._wrapper
+        return obj
+
+    def __call__(self):
+        return self.result
+
+    
 def transact(f):
     """
     Use this function as a decorator to wrap the supplied method I{f} of
@@ -463,22 +486,22 @@ class AccessBroker(object):
     
     def s(self, *args, **kw):
         """
-        Polymorphic method for working with C{select} instances within a cached
-        selection subcontext.
+        Polymorphic method for working with C{select} instances within a
+        cached selection subcontext.
 
-            - When called with a single argument (the select object's name as a
-              string) and no keywords, this method indicates if the named
-              select object already exists and sets its selection subcontext to
-              I{name}.
+        - When called with a single argument (the select object's name
+          as a string) and no keywords, this method indicates if the
+          named select object already exists and sets its selection
+          subcontext to I{name}.
             
-            - With multiple arguments or any keywords, the method acts like a
-              call to C{sqlalchemy.select(...).compile()}, except that nothing
-              is returned. Instead, the resulting select object is stored in
-              the current selection subcontext.
+        - With multiple arguments or any keywords, the method acts
+          like a call to C{sqlalchemy.select(...).compile()}, except
+          that nothing is returned. Instead, the resulting select
+          object is stored in the current selection subcontext.
             
-            - With no arguments or keywords, the method returns the select
-              object for the current selection subcontext.
-              
+        - With no arguments or keywords, the method returns the select
+          object for the current selection subcontext.
+
         """
         if kw or (len(args) > 1):
             # It's a compilation.
@@ -495,6 +518,18 @@ class AccessBroker(object):
             context = getattr(self, 'context', None)
             return self.selects.get(context)
 
+    def selectorator(self, *cols):
+        """
+        Constructs a C{select} instance for the columns supplied as
+        arguments and yields an object with the same attributes as the
+        select object itself. You do stuff with it and then after the
+        single iteration, the object can be called for the result of
+        executing the select object.
+        """
+        sh = SelectAndResultHolder(SA.select(cols))
+        yield sh
+        sh.result = self.connection.execute(sh._sObject)
+        
     def queryToList(self, **kw):
         """
         Executes my current select object with the bind parameters supplied as

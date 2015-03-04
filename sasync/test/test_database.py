@@ -474,6 +474,18 @@ class TestTransactions(TestCase):
         d.addCallback(gotRows)
         return d
 
+    def testSelectorator(self):
+        def run(null):
+            def next():
+                cols = self.broker.people.c
+                for sh in self.broker.selectorator(cols.name_first):
+                    sh.where(cols.name_last == 'Luther')
+                row = sh().fetchone()
+                self.assertEqual(row[0], 'Martin')
+            return self.broker.q.call(next)
+        
+        return self.createStuff().addCallbacks(run, self.oops)
+        
     def testTransactMany(self):
         def run(null):
             dL = []
