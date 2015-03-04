@@ -331,7 +331,6 @@ class AccessBroker(object):
                 "sqlalchemy.pool").addHandler(logging.NullHandler())
             # Now create the engine
             url, kw = self.engineParams
-            kw['pool_size'] = 1
             kw['poolclass'] = pool.SingletonThreadPool
             return SA.create_engine(url, **kw)
         
