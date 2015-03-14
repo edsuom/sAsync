@@ -331,6 +331,10 @@ class AccessBroker(object):
                 "sqlalchemy.pool").addHandler(logging.NullHandler())
             # Now create the engine
             url, kw = self.engineParams
+            # It might be nice to allow multiple threads, but need to
+            # consider how that would impact transactions that depend
+            # on something being set up.
+            kw['pool_size'] = 1
             kw['poolclass'] = pool.SingletonThreadPool
             return SA.create_engine(url, **kw)
         
@@ -528,7 +532,10 @@ class AccessBroker(object):
         sh = SelectAndResultHolder(SA.select(cols))
         yield sh
         sh.result = self.connection.execute(sh._sObject)
-        
+
+    def execute(self, obj):
+        return self.connection.execute(obj)
+    
     def queryToList(self, **kw):
         """
         Executes my current select object with the bind parameters supplied as
