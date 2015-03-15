@@ -78,27 +78,56 @@ class DatabaseError(Exception):
     
 class SelectAndResultHolder(object):
     """
-    I am yielded by L{AccessBroker.selectorator} to let you work on my
-    internal select object and then call me for its result.
+    I am yielded by L{AccessBroker.selectorator} to let you work on
+    (1) a select of the provided columns or (2) an object produced by
+    a callable and any args for it, then call me for its
+    result.
+
+    Everything is cleaned up via my L{close} method after the "loop"
+    ends.
     """
-    def __init__(self, sObject):
-        self._result = None
-        self._sObject = sObject
+    def __init__(self, conn, *args):
+        self.conn = conn
+        if callable(args[0]):
+            self._sObject = args[0](*args[1:])
+        else:
+            self._sObject = SA.select(args)
 
     def _wrapper(self, *args, **kw):
+        """
+        Replaces the select object with the result of a method of it that
+        you obtained as an attribute of me. Henceforth my attributes
+        shall be those of the replacement object.
+        """
         self._sObject = getattr(self._sObject, self._methodName)(*args, **kw)
         
     def __getattr__(self, name):
+        """
+        Access an attribute of my select object (or a replacement obtained
+        via a method call) as if it were my own. If the attribute is
+        callable, wrap it in my magic object-replacement wrapper
+        method.
+        """
         obj = getattr(self._sObject, name)
         if callable(obj):
             self._methodName = name
             return self._wrapper
         return obj
 
-    def __call__(self):
-        return self.result
+    def __call__(self, *args, **kw):
+        """
+        Call my connection to execute the select object with any supplied
+        args and keywords. The ResultProxy is returned and also
+        replaces the select object. Thus, after this call, you can
+        access its attributes as if they were my own, if that turns you on.
+        """
+        self._sObject = self.conn.execute(self._sObject, *args, **kw)
+        return self._sObject
 
-    
+    def close(self):
+        self._sObject.close()
+
+
 def transact(f):
     """
     Use this function as a decorator to wrap the supplied method I{f} of
@@ -521,18 +550,26 @@ class AccessBroker(object):
             context = getattr(self, 'context', None)
             return self.selects.get(context)
 
-    def selectorator(self, *cols):
+    def selectorator(self, *args):
         """
-        Constructs a C{select} instance for the columns supplied as
-        arguments and yields an object with the same attributes as the
-        select object itself. You do stuff with it and then after the
-        single iteration, the object can be called for the result of
-        executing the select object.
-        """
-        sh = SelectAndResultHolder(SA.select(cols))
-        yield sh
-        sh.result = self.connection.execute(sh._sObject)
+        Supply columns as arguments and this method generates a select on
+        the columns, yielding a placeholder object with the same
+        attributes as the select object itself.
 
+        Supply a callable as an argument (along with any of its args)
+        and it yields a placeholder whose attributes are the same as
+        the result of that call.
+
+        In either case, you do stuff with the placeholder and call it
+        to execute the connection with it. Supply the name of a
+        resultsproxy method (and any of its args) to the call to get
+        the result instead of the rp. Do all of this inside the "loop"
+        single iteration.
+        """
+        sh = SelectAndResultHolder(self.connection, *args)
+        yield sh
+        sh.close()
+    
     def execute(self, obj):
         return self.connection.execute(obj)
     

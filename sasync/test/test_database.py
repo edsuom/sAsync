@@ -474,18 +474,28 @@ class TestTransactions(TestCase):
         d.addCallback(gotRows)
         return d
 
-    def testSelectorator(self):
+    def testSelectorator_select(self):
         def run(null):
             def next():
                 cols = self.broker.people.c
                 for sh in self.broker.selectorator(cols.name_first):
                     sh.where(cols.name_last == 'Luther')
-                row = sh().fetchone()
+                    row = sh().fetchone()
                 self.assertEqual(row[0], 'Martin')
             return self.broker.q.call(next)
-        
         return self.createStuff().addCallbacks(run, self.oops)
-        
+
+    def testSelectorator_delete(self):
+        def run(null):
+            def next():
+                table = self.broker.people
+                for sh in self.broker.selectorator(table.delete):
+                    sh.where(table.c.name_last == 'Luther')
+                    N = sh().rowcount
+                self.assertGreater(N, 0)
+            return self.broker.q.call(next)
+        return self.createStuff().addCallbacks(run, self.oops)
+    
     def testTransactMany(self):
         def run(null):
             dL = []
