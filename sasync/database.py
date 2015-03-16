@@ -134,6 +134,11 @@ def transact(f):
     L{AccessBroker} in a transaction that runs C{f(*args, **kw)} in its own
     transaction.
 
+    You are likely to obtain a reference to an SQLAlchemy ResultProxy
+    object as part of your transaction. Name it C{self.rp} and it will
+    automatically get closed when the function finishes. Might help
+    guard against memory leaks (?)
+
     Immediately returns an instance of L{twisted.internet.defer.Deferred} that
     will eventually have its callback called with the result of the
     transaction. Inspired by and largely copied from Valentino Volonghi's
@@ -189,6 +194,9 @@ def transact(f):
                     raise e
             else:
                 trans.commit()
+                if hasattr(self, 'rp'):
+                    self.rp.close()
+                    del self.rp
                 return result
             return failure.Failure()
 
@@ -565,6 +573,8 @@ class AccessBroker(object):
         resultsproxy method (and any of its args) to the call to get
         the result instead of the rp. Do all of this inside the "loop"
         single iteration.
+
+        
         """
         sh = SelectAndResultHolder(self.connection, *args)
         yield sh
@@ -578,8 +588,11 @@ class AccessBroker(object):
         Executes my current select object with the bind parameters supplied as
         keywords, returning a list containing the first element of each row in
         the result.
+
         """
-        rows = self.s().execute(**kw).fetchall()
+        rp = self.s().execute(**kw)
+        rows = rp.fetchall()
+        rp.close()
         if rows is None:
             return []
         return [row[0] for row in rows]
@@ -587,7 +600,7 @@ class AccessBroker(object):
     def deferToQueue(self, func, *args, **kw):
         """
         Dispatches I{callable(*args, **kw)} as a task via the like-named method
-        of my synchronous queue, returning a deferred to its eventual result.
+        of my asynchronous queue, returning a deferred to its eventual result.
 
         Scheduling of the task is impacted by the I{niceness} keyword that can
         be included in I{**kw}. As with UNIX niceness, the value should be an
