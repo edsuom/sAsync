@@ -25,6 +25,7 @@ Asynchronous database transactions via SQLAlchemy.
 """
 
 import sys, logging
+from contextlib import contextmanager
 
 from twisted.internet import defer
 from twisted.python import failure
@@ -558,7 +559,8 @@ class AccessBroker(object):
             context = getattr(self, 'context', None)
             return self.selects.get(context)
 
-    def selectorator(self, *args):
+    @contextmanager
+    def selex(self, *args, **kw):
         """
         Supply columns as arguments and this method generates a select on
         the columns, yielding a placeholder object with the same
@@ -571,17 +573,18 @@ class AccessBroker(object):
         In either case, you do stuff with the placeholder and call it
         to execute the connection with it. Supply the name of a
         resultsproxy method (and any of its args) to the call to get
-        the result instead of the rp. Do all of this inside the "loop"
-        single iteration.
+        the result instead of the rp. Do all of this within the
+        context of the placeholder:
 
-        
+        with <me>.select(<table>.c.foo) as sh:
+            sh.where(<table>.c.bar == "correct")
+            rows = sh().fetchall()
+        <proceed with rows...>
+
         """
         sh = SelectAndResultHolder(self.connection, *args)
         yield sh
         sh.close()
-    
-    def execute(self, obj):
-        return self.connection.execute(obj)
     
     def queryToList(self, **kw):
         """
