@@ -33,42 +33,8 @@ from twisted.python import failure
 import sqlalchemy as SA
 from sqlalchemy import pool
 
-######################################################################
-# SA 0.4 support contributed by Ricky Iacovou,  based upon:
-#
-#   http://www.sqlalchemy.org/docs/04/intro.html#overview_migration
-#
-# Determine the version of SQLAlchemy used, 0.3 or 0.4, and set the
-# Boolean variable "SA04" accordingly.
-#
-# We could also use a capability-based approach, like:
-#
-# try:
-#     MetaData = SA.BoundMetaData
-# except AttributeError:
-#     MetaData = SA.MetaData
-#
-# However, late 0.3.x versions also supported some 0.4 constructs,
-# so better use an explicit 0.3.x -> 0.4.x cutoff in order to avoid
-# ambiguity.
-######################################################################
-_sv = SA.__version__.split ('.')
-try:
-    _v = int (_sv[0]) + (int(_sv[1]) / 10.0)
-except:
-    # Not strictly an Import Error, but close enough.
-    raise ImportError("Failed to determine SQLAlchemy version: %s", _sv)
-if _v >= 0.4:
-    SA04 = True
-else:
-    SA04 = False
-del _sv, _v
-# End of version check
+import asynqueue
 
-
-from asynqueue import ThreadQueue
-
-import misc
 
 
 class DatabaseError(Exception):
@@ -277,7 +243,7 @@ class AccessBroker(object):
     U{http://www.sqlalchemy.org/docs/dbengine.myt}.
 
     @ivar dt: A property-generated reference to a deferred tracker that you can
-      use to wait for database writes. See L{misc.DeferredTracker}.
+      use to wait for database writes. See L{asynqueue.DeferredTracker}.
 
     @ivar q: A property-generated reference to a threaded task queue that is
       dedicated to my database connection.
@@ -309,12 +275,13 @@ class AccessBroker(object):
 
     def _getDeferredTracker(self):
         """
-        Returns an instance of L{misc.DeferredTracker} that is dedicated to the
-        bound method's instance of me. Creates the deferred tracker the first
-        time this method is called for a given instance of me.
+        Returns an instance of L{asynqueue.DeferredTracker} that is
+        dedicated to the bound method's instance of me. Creates the
+        deferred tracker the first time this method is called for a
+        given instance of me.
         """
         if not hasattr(self, '_deferredTracker'):
-            self._deferredTracker = misc.DeferredTracker()
+            self._deferredTracker = asynqueue.DeferredTracker()
         return self._deferredTracker
     dt = property(_getDeferredTracker)
 
@@ -324,7 +291,7 @@ class AccessBroker(object):
         connection. Creates the queue the first time the property is accessed.
         """
         def newQueue():
-            queue = ThreadQueue(1)
+            queue = asynqueue.ThreadQueue()
             self.running = True
             self.queues[key] = queue
             return queue
@@ -419,10 +386,7 @@ class AccessBroker(object):
         """
         def _table():
             if not hasattr(self, '_meta'):
-                if SA04:
-                    self._meta = SA.MetaData(self._engine)
-                else:
-                    self._meta = SA.BoundMetaData(self._engine)
+                self._meta = SA.MetaData(self._engine)
             indexes = {}
             for key in kw.keys():
                 if key.startswith('index_'):
@@ -465,28 +429,6 @@ class AccessBroker(object):
         This method runs before the first transaction to start my synchronous
         task queue. B{Override it} to get whatever pre-transaction stuff you
         have run.
-
-        Alternatively, with legacy support for the old API, your
-        pre-transaction code can reside in a L{userStartup} method of your
-        subclass.
-        """
-        userStartup = getattr(self, 'userStartup', None)
-        if callable(userStartup):
-            return defer.maybeDeferred(userStartup)
-
-    def userStartup(self):
-        """
-        If this method is defined and L{startup} is not overridden in your
-        subclass, however, this method will be run as the first callback in the
-        deferred processing chain, after my synchronous task queue is safely
-        underway.
-
-        The method should return either an immediate result or a deferred to
-        an eventual result.
-
-        B{Deprecated}: Instead of defining this method, your subclass should
-        simply override L{startup} with your custom startup stuff.
-
         """
 
     def first(self):
