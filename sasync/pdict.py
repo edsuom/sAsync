@@ -28,7 +28,7 @@ Dictionary-like objects with behind-the-scenes database persistence
 # Imports
 from collections import MutableMapping
 from twisted.internet import defer
-from misc import DeferredTracker
+from asynqueue import DeferredTracker
 
 import items
 

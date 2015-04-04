@@ -21,38 +21,23 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
 
 """
-Unit tests for sasync.database.py.
-
-Twisted is needed for running the unit tests, and is highly recommended for
-regular operation as that's basically the main point of sAsync. Plus, if you
-are enough of a developer or all-around computer stud to run the unit tests,
-then you should be enough of one to have Twisted!
-
+Unit tests for sasync.database
 """
+
 import re, time
 from twisted.python.failure import Failure
-from twisted.internet import reactor
-from twisted.internet.defer import \
-     succeed, Deferred, DeferredList, waitForDeferred, deferredGenerator
-from twisted.internet.threads import deferToThread
-from twisted.trial.unittest import TestCase
-from twisted.internet.utils import getProcessOutput
+from twisted.internet import reactor, defer
 
 from sqlalchemy import *
 
-from sasync.database import AccessBroker, transact
+from database import AccessBroker, transact
+from testbase import deferToDelay, IterationConsumer, TestCase
 
 
 VERBOSE = False
 
 DELAY = 0.5
 DB_URL = 'sqlite:///database.db'
-
-
-def deferToDelay(result, delay=0.1):
-    d = Deferred()
-    reactor.callLater(delay, d.callback, result)
-    return d
 
 
 class MyBroker(AccessBroker):
@@ -129,6 +114,12 @@ class MyBroker(AccessBroker):
               self.people.c.name_last == bindparam('last'))
         return self.fullName(s().execute(last=lastName).fetchone())
 
+    @transact
+    def everybody(self):
+        rp = select(
+            [self.people.c.name_last, self.people.c.name_first]).execute()
+        return iter(rp)
+    
     def addAndUseEntry(self):
         def _first():
             self.people.insert().execute(
@@ -191,17 +182,15 @@ class TestStartupAndShutdown(TestCase):
         self.broker = AccessBroker(DB_URL)
         return self.broker.startup()
 
-    def testMultipleShutdowns(self):
-        def runner():
-            for k in xrange(10):
-                yield waitForDeferred(self.broker.shutdown())
-                d = Deferred()
-                reactor.callLater(0.02, d.callback, None)
-                yield waitForDeferred(d)
-        runner = deferredGenerator(runner)
-        return runner()
+    @defer.inlineCallbacks
+    def test_multipleShutdowns(self):
+        for k in xrange(10):
+            yield self.broker.shutdown()
+            d = defer.Deferred()
+            reactor.callLater(0.02, d.callback, None)
+            yield d
 
-    def testShutdownTwoBrokers(self):
+    def test_shutdownTwoBrokers(self):
         brokerB = AccessBroker(DB_URL)
 
         def thisOneShutdown(null, broker):
@@ -214,13 +203,13 @@ class TestStartupAndShutdown(TestCase):
                 if VERBOSE:
                     d.addCallback(thisOneShutdown, broker)
                 dList.append(d)
-            return DeferredList(dList)
+            return defer.DeferredList(dList)
 
         d = brokerB.startup()
         d.addCallback(shutEmDown)
         return d
 
-    def testShutdownThreeBrokers(self):
+    def test_shutdownThreeBrokers(self):
         brokerB = AccessBroker(DB_URL)
         brokerC = AccessBroker(DB_URL)
 
@@ -234,9 +223,9 @@ class TestStartupAndShutdown(TestCase):
                 if VERBOSE:
                     d.addCallback(thisOneShutdown, broker)
                 dList.append(d)
-            return DeferredList(dList)
+            return defer.DeferredList(dList)
 
-        d = DeferredList([brokerB.startup(), brokerC.startup()])
+        d = defer.DeferredList([brokerB.startup(), brokerC.startup()])
         d.addCallback(shutEmDown)
         return d
 
@@ -248,7 +237,7 @@ class TestPrimitives(TestCase):
     def tearDown(self):
         return self.broker.shutdown()
 
-    def testErrbackDFQ(self):
+    def test_errbackDFQ(self):
         def errback(failure):
             self.failUnless(isinstance(failure, Failure))
 
@@ -258,7 +247,7 @@ class TestPrimitives(TestCase):
             errback)
         return d
 
-    def testErrbackTransact(self):
+    def test_errbackTransact(self):
         def errback(failure):
             self.failUnless(isinstance(failure, Failure))
 
@@ -268,7 +257,7 @@ class TestPrimitives(TestCase):
             errback)
         return d
 
-    def testConnect(self):
+    def test_connect(self):
         mutable = []
         def gotConnection(conn):
             mutable.append(conn)
@@ -282,40 +271,12 @@ class TestPrimitives(TestCase):
             
         d1 = self.broker.connect().addCallback(gotConnection)
         d2 = self.broker.connect().addCallback(gotConnection)
-        d3 = deferToDelay(None, DELAY)
+        d3 = deferToDelay(DELAY)
         d3.addCallback(lambda _: self.broker.connect())
         d3.addCallback(gotConnection)
-        return DeferredList([d1, d2, d3]).addCallback(gotAll)
+        return defer.DeferredList([d1, d2, d3]).addCallback(gotAll)
 
-    def testConnectAfterThreadedDelay(self):
-        # There seems to be a deferToThread problem here. Disabling the test
-        # for now.
-        mutable = []
-        def threadedDelay():
-            print "DELAYING..."
-            time.sleep(DELAY)
-            print "...DELAY IS DONE"
-        
-        def gotConnection(conn):
-            print "GOT", conn
-            mutable.append(conn)
-
-        def gotAll(null):
-            prevItem = mutable.pop()
-            while mutable:
-                thisItem = mutable.pop()
-                self.failUnlessEqual(thisItem, prevItem)
-                prevItem = thisItem
-
-        return
-        # The next lines are ignored.
-        d1 = self.broker.connect().addCallback(gotConnection)
-        d2 = self.broker.connect().addCallback(gotConnection)
-        d3 = deferToThread(threadedDelay)
-        d3.addCallback(lambda _: self.broker.connect())
-        return DeferredList([d1, d2, d3]).addCallback(gotAll)
-
-    def testConnectShutdownConnectAgain(self):
+    def test_connectShutdownConnectAgain(self):
         def newBroker(null):
             self.broker = MyBroker(DB_URL)
             return self.broker.connect()
@@ -325,7 +286,7 @@ class TestPrimitives(TestCase):
         d.addCallback(newBroker)
         return d
 
-    def testTable(self):
+    def test_table(self):
         mutable = []
 
         def getTable():
@@ -342,20 +303,20 @@ class TestPrimitives(TestCase):
             
         d1 = getTable().addCallback(gotTable)
         d2 = getTable().addCallback(gotTable)
-        d3 = deferToDelay(None, DELAY)
+        d3 = deferToDelay(DELAY)
         d3.addCallback(lambda _: getTable())
         d3.addCallback(gotTable)
-        return DeferredList([d1, d2, d3]).addCallback(gotAll)
+        return defer.DeferredList([d1, d2, d3]).addCallback(gotAll)
 
-    def testCreateTableTwice(self):
+    def test_createTableTwice(self):
         def create():
             return self.broker.table(
                 'singleton',
                 Column('id', Integer, primary_key=True),
                 Column('foobar', String(32)))
-        return DeferredList([create(), create()])
+        return defer.DeferredList([create(), create()])
 
-    def testCreateTableWithIndex(self):
+    def test_createTableWithIndex(self):
         def create():
             return self.broker.table(
                 'table_indexed',
@@ -368,7 +329,7 @@ class TestPrimitives(TestCase):
         d.addCallback(lambda _: self.broker.tableDelete('table_indexed'))
         return d
 
-    def testCreateTableWithUnique(self):
+    def test_createTableWithUnique(self):
         def create():
             return self.broker.table(
                 'table_unique',
@@ -381,28 +342,30 @@ class TestPrimitives(TestCase):
         d.addCallback(lambda _: self.broker.tableDelete('table_unique'))
         return d
 
-    def testSameUrlSameQueueNotStarted(self):
+    def test_sameUrlSameQueueNotStarted(self):
         anotherBroker = MyBroker(DB_URL)
         self.failUnlessEqual(self.broker.q, anotherBroker.q)
         d1 = anotherBroker.shutdown()
         d2 = self.broker.shutdown()
-        return DeferredList([d1,d2])
+        return defer.DeferredList([d1,d2])
 
-    def testSameUrlSameQueueStarted(self):
+    def test_sameUrlSameQueueStarted(self):
         def doRest(null):
             anotherBroker = MyBroker(DB_URL)
             self.failUnlessEqual(self.broker.q, anotherBroker.q)
             d1 = anotherBroker.shutdown()
             d2 = self.broker.shutdown()
-            return DeferredList([d1,d2])
+            return defer.DeferredList([d1,d2])
         
-        d = Deferred()
+        d = defer.Deferred()
         d.addCallback(doRest)
         reactor.callLater(DELAY, d.callback, None)
         return d
-
+        
 
 class TestTransactions(TestCase):
+    verbose = True
+    
     se = re.compile(r"sqlalchemy.+[eE]ngine")
     st = re.compile(r"sqlalchemy.+[tT]able")
         
@@ -413,9 +376,7 @@ class TestTransactions(TestCase):
         return self.broker.shutdown()
 
     def oops(self, failure):
-        print "\nFAILURE:", 
-        failure.printTraceback()
-        print "\n"
+        self.msg("FAILURE: {}", failure.getTraceback())
         return failure
 
     def createStuff(self):
@@ -425,12 +386,9 @@ class TestTransactions(TestCase):
                 Column('id', Integer, primary_key=True),
                 Column('foobar', String(64)))
             return d
-        
-        d = self.broker.setUpPeopleTable()
-        d.addCallbacks(next, self.oops)
-        return d
+        return self.broker.setUpPeopleTable().addCallbacks(next, self.oops)
 
-    def testGetTable(self):
+    def test_getTable(self):
         def run(null):
             table = self.broker.foobars
             isType = str(type(table))
@@ -438,10 +396,9 @@ class TestTransactions(TestCase):
                 self.st.search(isType),
                 ("AccessBroker().foobars should be an sqlalchemy Table() "+\
                  "object, but is '%s'") % isType)
-
         return self.createStuff().addCallbacks(run, self.oops)
 
-    def testSelectOneAndTwoArgs(self):
+    def test_selectOneAndTwoArgs(self):
         s = self.broker.s
         def run(null):
             def next():
@@ -450,10 +407,9 @@ class TestTransactions(TestCase):
                 self.failUnlessEqual(s('thisSelect'), True)
                 self.failUnlessEqual(s('thatSelect'), False)
             return self.broker.q.call(next)
-
         return self.createStuff().addCallbacks(run, self.oops)
 
-    def testSelectZeroArgs(self):
+    def test_selectZeroArgs(self):
         s = self.broker.s
         def run(null):
             def next():
@@ -474,50 +430,58 @@ class TestTransactions(TestCase):
         d.addCallback(gotRows)
         return d
 
-    def testSelectorator_select(self):
+    @defer.inlineCallbacks
+    def test_iterate_transaction(self):
+        consumer = IterationConsumer(self.verbose)
+        yield self.broker.setUpPeopleTable()
+        yield self.broker.everybody(consumer=consumer)
+        self.assertEqual(len(consumer.data), 5)
+        
+    def test_selex_select(self):
         def run(null):
             def next():
                 cols = self.broker.people.c
-                for sh in self.broker.selectorator(cols.name_first):
+                with self.broker.selex(cols.name_first) as sh:
                     sh.where(cols.name_last == 'Luther')
                     row = sh().fetchone()
                 self.assertEqual(row[0], 'Martin')
             return self.broker.q.call(next)
         return self.createStuff().addCallbacks(run, self.oops)
 
-    def testSelectorator_delete(self):
+    def test_selex_delete(self):
         def run(null):
             def next():
                 table = self.broker.people
-                for sh in self.broker.selectorator(table.delete):
+                with self.broker.selex(table.delete) as sh:
                     sh.where(table.c.name_last == 'Luther')
                     N = sh().rowcount
                 self.assertGreater(N, 0)
             return self.broker.q.call(next)
         return self.createStuff().addCallbacks(run, self.oops)
     
-    def testTransactMany(self):
+    def test_transactMany(self):
         def run(null):
             dL = []
             for letter in "abcdefghijklmnopqrstuvwxyz":
                 d = self.broker.matchingNames(letter)
                 dL.append(d)
-            return DeferredList(dL).addCallback(self.broker.showNames)
-
+            return defer.DeferredList(dL).addCallback(self.broker.showNames)
         return self.createStuff().addCallbacks(run, self.oops)
 
-    def testTransactionAutoStartup(self):
+    def test_transactionAutoStartup(self):
         d = self.broker.fakeTransaction(1)
         d.addCallback(self.failUnlessEqual, 2)
         return d
 
-    def testFirstTransaction(self):
+    def test_firstTransaction(self):
         broker = AutoSetupBroker(DB_URL)
         d = broker.transactionRequiringFirst()
         d.addCallback(self.failUnlessEqual, 'Firstman')
         return d
 
-    def testNestTransactions(self):
+    def test_nestTransactions(self):
         d = self.broker.nestedTransaction(1)
         d.addCallback(self.failUnlessEqual, 3)
         return d
+        
+        

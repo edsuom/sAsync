@@ -127,6 +127,12 @@ def transact(f):
       transaction function ignored and just do the rollback quietly.
 
     @type ignore: Boolean option, default C{False}
+
+    @keyword consumer: Set this to a consumer object (must implement
+      the L{twisted.interfaces.IConsumer} interface) and the
+      L{SA.ResultProxy} will write its rows to it in Twisted
+      fashion. The returned deferred will fire when all rows have been
+      written.
     
     """
     def substituteFunction(self, *args, **kw):
@@ -150,6 +156,13 @@ def transact(f):
             thread, is contained within this little function, including of
             course a call to C{func}.
             """
+            def commit(x):
+                #trans.commit()
+                if hasattr(self, 'rp'):
+                    self.rp.close()
+                    del self.rp
+                return x
+            
             trans = self.connection.begin()
             if not hasattr(func, 'im_self'):
                 t_args = (self,) + t_args
@@ -158,15 +171,26 @@ def transact(f):
             except Exception, e:
                 trans.rollback()
                 if not ignore:
-                    raise e
-            else:
-                trans.commit()
-                if hasattr(self, 'rp'):
-                    self.rp.close()
-                    del self.rp
-                return result
-            return failure.Failure()
-
+                    return failure.Failure(e)
+                return
+            # The function call went OK
+            trans.commit()
+            if consumer:
+                ip = asynqueue.iteratorToProducer(
+                    result, consumer, wrapper=self.q.deferToThread)
+                if ip is None:
+                    trans.rollback()
+                    if ignore:
+                        return
+                    return failure.Failure(Exception(
+                        "You can't consume from a non-iterator"))
+                # When we consume iterations, we don't commit and
+                # close the transaction until the iterations have all
+                # been produced.
+                return ip.run().addCallback(
+                    lambda _: self.q.deferToThread(commit, None))
+            return commit(result)
+        
         def doTransaction(null):
             """
             Queues up the transaction and immediately returns a deferred to
@@ -174,6 +198,7 @@ def transact(f):
             """
             if isNested():
                 return f(self, *args, **kw)
+            # Here's where the ThreadQueue actually runs the transaction
             return self.q.call(transaction, f, *args, **kw)
 
         def started(null):
@@ -194,6 +219,9 @@ def transact(f):
                     return True
 
         ignore = kw.pop('ignore', False)
+        consumer = kw.pop('consumer', None)
+        if consumer:
+            kw['raw'] = False
         if hasattr(self, 'connection') and getattr(self, 'ranStart', False):
             # We already have a connection, let's get right to the transaction
             d = doTransaction(None)
@@ -291,7 +319,10 @@ class AccessBroker(object):
         connection. Creates the queue the first time the property is accessed.
         """
         def newQueue():
-            queue = asynqueue.ThreadQueue()
+            worker = asynqueue.ThreadWorker(raw=True)
+            queue = asynqueue.TaskQueue(worker)
+            # We use deferToThread to access the queue's single thread
+            queue.deferToThread = worker.t.deferToThread
             self.running = True
             self.queues[key] = queue
             return queue
@@ -430,6 +461,7 @@ class AccessBroker(object):
         task queue. B{Override it} to get whatever pre-transaction stuff you
         have run.
         """
+        return defer.succeed(None)
 
     def first(self):
         """
