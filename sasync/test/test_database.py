@@ -118,7 +118,7 @@ class MyBroker(AccessBroker):
     def everybody(self):
         rp = select(
             [self.people.c.name_last, self.people.c.name_first]).execute()
-        return iter(rp)
+        return rp
     
     def addAndUseEntry(self):
         def _first():

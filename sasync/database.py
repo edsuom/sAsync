@@ -156,13 +156,6 @@ def transact(f):
             thread, is contained within this little function, including of
             course a call to C{func}.
             """
-            def commit(x):
-                #trans.commit()
-                if hasattr(self, 'rp'):
-                    self.rp.close()
-                    del self.rp
-                return x
-            
             trans = self.connection.begin()
             if not hasattr(func, 'im_self'):
                 t_args = (self,) + t_args
@@ -173,33 +166,43 @@ def transact(f):
                 if not ignore:
                     return failure.Failure(e)
                 return
-            # The function call went OK
-            trans.commit()
             if consumer:
-                ip = asynqueue.iteratorToProducer(
-                    result, consumer, wrapper=self.q.deferToThread)
-                if ip is None:
-                    trans.rollback()
-                    if ignore:
-                        return
-                    return failure.Failure(Exception(
-                        "You can't consume from a non-iterator"))
-                # When we consume iterations, we don't commit and
-                # close the transaction until the iterations have all
-                # been produced.
-                return ip.run().addCallback(
-                    lambda _: self.q.deferToThread(commit, None))
-            return commit(result)
-        
+                # Maybe inefficient and inelegant to just store all
+                # the rows in result, but we need to free up the
+                # connection for the next call and don't want to be
+                # doing consumer.write() from inside the thread.
+                result = result.fetchall()
+            # We can commit now.
+            trans.commit()
+            if hasattr(self, 'rp'):
+                self.rp.close()
+                del self.rp
+            return result
+
+        @defer.inlineCallbacks
         def doTransaction(null):
             """
             Queues up the transaction and immediately returns a deferred to
             its eventual result.
             """
             if isNested():
-                return f(self, *args, **kw)
-            # Here's where the ThreadQueue actually runs the transaction
-            return self.q.call(transaction, f, *args, **kw)
+                # What about if nested func returns tne iterator?
+                result = f(self, *args, **kw)
+            else:
+                # Here's where the ThreadQueue actually runs the transaction
+                result = yield self.q.call(transaction, f, *args, **kw)
+                if consumer:
+                    ip = asynqueue.iteratorToProducer(iter(result), consumer)
+                    if ip is None:
+                        if ignore:
+                            result = None
+                        else:
+                            result = failure.Failure(Exception(
+                                "You can't consume from a non-iterator"))
+                    else:
+                         yield ip.run()
+                         result = None
+            defer.returnValue(result)
 
         def started(null):
             self.ranStart = True
