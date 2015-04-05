@@ -304,6 +304,7 @@ class AccessBroker(object):
         SQLAlchemy engine object that serves this instance only.
         """
         self.selects = {}
+        self.rowProxies = []
         if url:
             self.engineParams = (url[0], kw)
         else:
@@ -533,6 +534,8 @@ class AccessBroker(object):
         - With no arguments or keywords, the method returns the select
           object for the current selection subcontext.
 
+        Call from inside a transaction.
+
         """
         if kw or (len(args) > 1):
             # It's a compilation.
@@ -571,24 +574,35 @@ class AccessBroker(object):
             rows = sh().fetchall()
         <proceed with rows...>
 
+        Call from inside a transaction.
+        
         """
         sh = SelectAndResultHolder(self.connection, *args)
         yield sh
         sh.close()
-    
-    def queryToList(self, **kw):
-        """
-        Executes my current select object with the bind parameters supplied as
-        keywords, returning a list containing the first element of each row in
-        the result.
 
+    def selectorator(self, cols, whereClause, joinClause=None):
         """
-        rp = self.s().execute(**kw)
-        rows = rp.fetchall()
-        rp.close()
-        if rows is None:
-            return []
-        return [row[0] for row in rows]
+        Given a list of table columns and a "where" clause (join clause?),
+        returns a Deferator yielding deferreds, each of which fires
+        with a successive row of the select's ResultProxy.
+
+        Call directly, *not* from inside a transaction.
+
+        # TODO: Finish & test. Need to generalize some of the transact
+        stuff so this method call can use it, too.
+        """
+        def next(rp):
+            try:
+                row = rp.fetchone()
+            except:
+                raise StopIteration
+            return row
+        
+        rp = self.q.call() # select...
+        pf = asynqueue.Prefetcherator(repr(rp))
+        pf.setup(self.q.deferToThread, next, rp)
+        return asynqueue.Defetcherator(pf)
 
     def deferToQueue(self, func, *args, **kw):
         """
