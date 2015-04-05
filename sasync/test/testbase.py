@@ -64,8 +64,9 @@ class MsgBase(object):
 class IterationConsumer(MsgBase):
     implements(IConsumer)
 
-    def __init__(self, verbose=False):
+    def __init__(self, verbose=False, writeTime=None):
         self.verbose = verbose
+        self.writeTime = writeTime
         self.producer = None
 
     def registerProducer(self, producer, streaming):
@@ -83,8 +84,16 @@ class IterationConsumer(MsgBase):
         self.msg("Producer unregistered")
 
     def write(self, data):
+        def resume(null):
+            if self.producer:
+                self.producer.resumeProducing()
+        
         self.data.append(data)
         self.msg("Data received: '{}'", str(data))
+        if self.writeTime:
+            self.producer.pauseProducing()
+            self.d = deferToDelay(
+                self.writeTime).addCallback(resume)
 
 
 class TestCase(MsgBase, unittest.TestCase):

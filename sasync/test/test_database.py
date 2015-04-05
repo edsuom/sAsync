@@ -37,7 +37,7 @@ from testbase import deferToDelay, IterationConsumer, TestCase
 VERBOSE = False
 
 DELAY = 0.5
-DB_URL = 'sqlite:///database.db'
+DB_URL = 'sqlite://'
 
 
 class MyBroker(AccessBroker):
@@ -118,13 +118,16 @@ class MyBroker(AccessBroker):
     def everybody(self):
         rp = select(
             [self.people.c.name_last, self.people.c.name_first]).execute()
+        # Iteration-ready; we return the ResultProxy, not a list of
+        # rows from rp.fetchall()
         return rp
-    
-    def addAndUseEntry(self):
-        def _first():
-            self.people.insert().execute(
-                name_last='McCain', name_first='John')
 
+    @transact
+    def addPerson(self, firstName, lastName):
+            self.people.insert().execute(
+                name_last=lastName, name_first=firstName)
+        
+    def addAndUseEntry(self):
         def _getNewID(null):
             rows = select(
                 [self.people.c.id],
@@ -134,7 +137,7 @@ class MyBroker(AccessBroker):
         def _getFirstName(ID):
             return self.people.select().execute(id=ID).fetchone()
 
-        d = transact(_first)()
+        d = self.addPerson("John", "McCain")
         d.addCallback(transact, _getNewID)
         d.addCallback(transact, _getFirstName)
         return d
@@ -176,12 +179,11 @@ class AutoSetupBroker(AccessBroker):
         return row['name_last']
 
 
-
 class TestStartupAndShutdown(TestCase):
     def setUp(self):
         self.broker = AccessBroker(DB_URL)
         return self.broker.startup()
-
+        
     @defer.inlineCallbacks
     def test_multipleShutdowns(self):
         for k in xrange(10):
@@ -364,7 +366,7 @@ class TestPrimitives(TestCase):
         
 
 class TestTransactions(TestCase):
-    verbose = True
+    verbose = False
     
     se = re.compile(r"sqlalchemy.+[eE]ngine")
     st = re.compile(r"sqlalchemy.+[tT]able")
@@ -379,14 +381,13 @@ class TestTransactions(TestCase):
         self.msg("FAILURE: {}", failure.getTraceback())
         return failure
 
+    @defer.inlineCallbacks
     def createStuff(self):
-        def next(null):
-            d = self.broker.table(
-                'foobars',
-                Column('id', Integer, primary_key=True),
-                Column('foobar', String(64)))
-            return d
-        return self.broker.setUpPeopleTable().addCallbacks(next, self.oops)
+        yield self.broker.setUpPeopleTable()
+        yield self.broker.table(
+            'foobars',
+            Column('id', Integer, primary_key=True),
+            Column('foobar', String(64)))
 
     def test_getTable(self):
         def run(null):
@@ -431,11 +432,33 @@ class TestTransactions(TestCase):
         return d
 
     @defer.inlineCallbacks
-    def test_iterate_transaction(self):
+    def test_iterate(self):
         consumer = IterationConsumer(self.verbose)
         yield self.broker.setUpPeopleTable()
         yield self.broker.everybody(consumer=consumer)
         self.assertEqual(len(consumer.data), 5)
+
+    @defer.inlineCallbacks
+    def test_iterate_nextWhileIterating(self):
+        slowConsumer = IterationConsumer(self.verbose, writeTime=0.2)
+        yield self.broker.setUpPeopleTable()
+        # In this case, do NOT wait for the done-iterating deferred
+        # before doing another transaction
+        d = self.broker.everybody(consumer=slowConsumer)
+        # Add a new person while we are iterating the people from the
+        # last query
+        yield self.broker.addPerson("George", "Washington")
+        # Confirm we have one more person now
+        fastConsumer = IterationConsumer(self.verbose)
+        yield self.broker.everybody(consumer=fastConsumer)
+        self.assertEqual(len(fastConsumer.data), 6)
+        # Now wait for the slow consumer
+        yield d
+        # It still should only have gotten the smaller number of people
+        self.assertEqual(len(slowConsumer.data), 5)
+        # Wait for the slow consumer's last write delay, just to avoid
+        # unclean reactor messiness
+        yield slowConsumer.d
         
     def test_selex_select(self):
         def run(null):

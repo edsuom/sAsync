@@ -170,11 +170,15 @@ def transact(f):
                 # Maybe inefficient and inelegant to just store all
                 # the rows in result, but we need to free up the
                 # connection for the next call and don't want to be
-                # doing consumer.write() from inside the thread.
+                # doing consumer.write() from inside the
+                # thread. Whatever time it takes to load everything
+                # with fetchall() won't affect the main loop since
+                # we're still inside the thread.
                 result = result.fetchall()
-            # We can commit now.
+            # We can commit now
             trans.commit()
             if hasattr(self, 'rp'):
+                # Does this actually accomplish anything?
                 self.rp.close()
                 del self.rp
             return result
@@ -184,9 +188,18 @@ def transact(f):
             """
             Queues up the transaction and immediately returns a deferred to
             its eventual result.
+
+            If the transaction resulted in a valid iterator and a
+            legit consumer was supplied via the consumer keyword, the
+            result is an IterationProduced and what is returned is a
+            deferred that fires when all iterations have been
+            produced. Because the rows have been loaded into memory at
+            that point, callers need not actually wait for the
+            deferred to fire before doing another transaction.
             """
             if isNested():
-                # What about if nested func returns tne iterator?
+                # An iterator only gets special treatment in the
+                # outermost @transact function
                 result = f(self, *args, **kw)
             else:
                 # Here's where the ThreadQueue actually runs the transaction
@@ -194,14 +207,14 @@ def transact(f):
                 if consumer:
                     ip = asynqueue.iteratorToProducer(iter(result), consumer)
                     if ip is None:
-                        if ignore:
-                            result = None
-                        else:
+                        if not ignore:
+                            # We couldn't iterate and are not ignoring
+                            # the error
                             result = failure.Failure(Exception(
                                 "You can't consume from a non-iterator"))
                     else:
-                         yield ip.run()
-                         result = None
+                        yield ip.run()
+                        result = None
             defer.returnValue(result)
 
         def started(null):
