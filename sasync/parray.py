@@ -25,9 +25,10 @@ Persistent Three-dimensional array objects
 """
 
 # Imports
-from twisted.internet import defer
+from twisted.internet import defer, reactor
 import sqlalchemy as SA
 
+from asynqueue import DeferredTracker
 from database import transact, AccessBroker
 import search
 
@@ -54,17 +55,15 @@ class Transactor(AccessBroker):
         if not isinstance(ID, int):
             raise TypeError("Item IDs must be integers")
         self.groupID = ID
-        if url:
-            super(Transactor, self).__init__(url[0], **kw)
-        else:
-            super(Transactor, self).__init__()
+        self.dt = DeferredTracker()
+        super(Transactor, self).__init__(*url[:1], **kw)
 
     def startup(self):
         """
         You can run my transaction methods when the deferred returned from
         this method fires, and not before.
         """
-        d = self.table(
+        return self.table(
             'sasync_array',
             SA.Column('group_id', SA.Integer),
             SA.Column('x', SA.Integer),
@@ -73,7 +72,6 @@ class Transactor(AccessBroker):
             SA.Column('value', SA.PickleType, nullable=False),
             unique_elements=['group_id', 'x', 'y', 'z']
             )
-        return d
     
     @transact
     def load(self, x, y, z):
@@ -89,11 +87,8 @@ class Transactor(AccessBroker):
                         array.c.y == SA.bindparam('y'),
                         array.c.z == SA.bindparam('z'))
                 )
-        rows = self.s().execute(x=hash(x), y=hash(y), z=hash(z)).fetchone()
-        if not rows:
-            return None
-        else:
-            return rows['value']
+        rows = self.s().execute(x=hash(x), y=hash(y), z=hash(z)).fetchonly()
+        return rows['value'] if rows else None
 
     @transact
     def update(self, x, y, z, value):
@@ -147,33 +142,24 @@ class PersistentArray(object):
     three-way combination of hashable Python objects. You can use me as a
     two-dimensional array by simply using some constant, e.g., C{None} when
     supplying an address for my third dimension.
-
-    B{IMPORTANT}: Make sure you call my L{shutdown} method for an instance of
-    me that you're done with before allowing that instance to be deleted.
     """
     search = None
 
     def __init__(self, ID, *url, **kw):
         """
-        Constructor, with a URL and any engine-specifying keywords supplied if
-        a particular engine is to be used for this instance. The following
-        additional keyword is particular to this constructor:
+        Constructor, with a URL and any engine-specifying keywords
+        supplied if a particular engine is to be used for this
+        instance. The following additional keyword is particular to
+        this constructor:
         
-        @keyword search: Set C{True} if text indexing is to be performed on items
-            as they are written.
-
         """
         try:
             self.ID = hash(ID)
         except:
             raise TypeError("Item IDs must be hashable")
-        if kw.pop('search', False):
-            # No search object, worry about searching later
-            self.search = None
-        if url:
-            self.t = Transactor(self.ID, url[0], **kw)
-        else:
-            self.t = Transactor(self.ID)
+        self.t = Transactor(self.ID, *url[:1], **kw)
+        self.dt = asynqueue.DeferredTracker()
+        reactor.addSystemEventTrigger('before', 'shutdown', self.shutdown)
     
     def shutdown(self, *null):
         """
@@ -185,49 +171,16 @@ class PersistentArray(object):
         """
         Performs a database write transaction, returning a deferred to its
         completion.
-
-        If we are updating the search index, there's a nuance to the
-        deferred processing. In that case, when the write is done, the
-        deferred is fired and processing separately proceeds with indexing
-        of the written value. Here's how it works:
-
-            1. Create a clean deferred B{d1} to return to the caller, whose
-               callback(s) will be fired from the callback to the transaction's
-               own deferred B{d2}.
-
-            2. Start the write transaction and assign the C{writeDone} function
-               as the callback to its deferred B{d2}. Note that the
-               defer-to-queue transaction keeps a reference to the deferred
-               object it instantiates, so we don't have to do so for either
-               B{d2} or B{d3}. Those references are merely defined in the
-               method for code readability.
-
         """
-        def writeDone(noneResult, d1):
-            x, y, z = [hash(arg) for arg in args[0:3]]
-            document = "%d-%d" % (self.groupID, x)
-            section = "%d-%d" % (y, z)
-            d3 = self.search.index(
-                value, document=document, section=section)
-            d3.addCallback(self.search.ready)
-            d1.callback(None)
-        
         func = getattr(self.t, funcName)
-        kwNew = {'niceness':kw['niceness']}
-        if self.search is None:
-            return func(*args, **kwNew)
-        else:        
-            d1 = defer.Deferred()
-            self.search.busy()
-            d2 = func(*args, **kwNew)
-            d2.addCallback(writeDone, d1)
-            return d1
+        kw = {'niceness':kw.get('niceness', NICENESS_WRITE)}
+        return func(*args, **kw)
 
     def get(self, x, y, z):
         """
         Retrieves an element (x,y,z) from the database.
         """
-        d = self.t.dt.deferToAll()
+        d = self.dt.deferToAll()
         d.addCallback(lambda _: self.t.load(x, y, z))
         return d
 
@@ -238,23 +191,20 @@ class PersistentArray(object):
         """
         def loaded(loadedValue):
             if loadedValue is None:
-                return self.write(
-                    "insert", x, y, z, value, niceness=NICENESS_WRITE)
-            else:
-                return self.write(
-                    "update", x, y, z, value, niceness=NICENESS_WRITE)
+                return self.write("insert", x, y, z, value)
+            return self.write("update", x, y, z, value)
         
         d = self.t.load(x, y, z)
         d.addCallback(loaded)
-        self.t.dt.put(d)
+        self.dt.put(d)
         return d
 
     def delete(self, x, y, z):
         """
         Deletes the database row for element (x,y,z).
         """
-        d = self.write("delete", x, y, z, niceness=NICENESS_WRITE)
-        self.t.dt.put(d)
+        d = self.write("delete", x, y, z)
+        self.dt.put(d)
         return d
 
     def clear(self):
@@ -263,7 +213,7 @@ class PersistentArray(object):
         (B{Use with care!})
         """
         d =self.write("clear", niceness=0)
-        self.t.dt.put(d)
+        self.dt.put(d)
         return d
 
 
