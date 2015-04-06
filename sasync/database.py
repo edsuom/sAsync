@@ -40,31 +40,27 @@ import select, queue
 
 def transact(f):
     """
-    Use this function as a decorator to wrap the supplied method I{f} of
-    L{AccessBroker} in a transaction that runs C{f(*args, **kw)} in its own
-    transaction.
+    Use this function as a decorator to wrap the supplied method I{f}
+    of L{AccessBroker} in a transaction that runs C{f(*args, **kw)} in
+    its own transaction.
 
-    You are likely to obtain a reference to an SQLAlchemy ResultProxy
-    object as part of your transaction. Name it C{self.rp} and it will
-    automatically get closed when the function finishes. Might help
-    guard against memory leaks (?)
-
-    Immediately returns an instance of L{twisted.internet.defer.Deferred} that
-    will eventually have its callback called with the result of the
-    transaction. Inspired by and largely copied from Valentino Volonghi's
-    C{makeTransactWith} code.
+    Immediately returns an instance of
+    L{twisted.internet.defer.Deferred} that will eventually have its
+    callback called with the result of the transaction. Inspired by
+    and largely copied from Valentino Volonghi's C{makeTransactWith}
+    code.
 
     You can add the following keyword options to your function call:
 
-    @keyword niceness: Scheduling niceness, an integer between -20 and 20,
-      with lower numbers having higher scheduling priority as in UNIX C{nice}
-      and C{renice}.
+    @keyword niceness: Scheduling niceness, an integer between -20 and
+      20, with lower numbers having higher scheduling priority as in
+      UNIX C{nice} and C{renice}.
 
-    @keyword doNext: Set C{True} to assign highest possible priority, even
-      higher than with niceness = -20.                
+    @keyword doNext: Set C{True} to assign highest possible priority,
+      even higher than with niceness = -20.
 
-    @keyword doLast: Set C{True} to assign lower possible priority, even
-      lower than with niceness = 20.
+    @keyword doLast: Set C{True} to assign lower possible priority,
+      even lower than with niceness = 20.
 
     @keyword ignore: Set this option to C{True} to have errors in the
       transaction function ignored and just do the rollback quietly.
@@ -76,28 +72,38 @@ def transact(f):
       L{SA.ResultProxy} will write its rows to it in Twisted
       fashion. The returned deferred will fire when all rows have been
       written.
-    
     """
+    @defer.inlineCallbacks
     def substituteFunction(self, *args, **kw):
         """
-        Puts the original function in the synchronous task queue and returns a
-        deferred to its result when it is eventually run.
+        Puts the original function in the synchronous task queue and
+        returns a deferred to its result when it is eventually run.
 
-        This function will be given the same name as the original function so
-        that it can be asked to masquerade as the original function. As a
-        result, the threaded call to the original function that it makes inside
-        its C{transaction} sub-function will be able to use the arguments for
-        that original function. (The caller will actually be calling this
-        substitute function, but it won't know that.)
+        If the transaction resulted in a valid iterator and a legit
+        consumer was supplied via the consumer keyword, the result is
+        an IterationProduced and what is returned is a deferred that
+        fires when all iterations have been produced. Because the rows
+        have been loaded into memory at that point, callers need not
+        actually wait for the deferred to fire before doing another
+        transaction.
 
-        The original function should be a method of a L{AccessBroker} subclass
-        instance, and the queue for that instance will be used to run it.
+        This function will be given the same name as the original
+        function so that it can be asked to masquerade as the original
+        function. As a result, the threaded call to the original
+        function that it makes inside its C{transaction} sub-function
+        will be able to use the arguments for that original
+        function. (The caller will actually be calling this substitute
+        function, but it won't know that.)
+
+        The original function should be a method of a L{AccessBroker}
+        subclass instance, and the queue for that instance will be
+        used to run it.
         """
         def transaction(func, *t_args, **t_kw):
             """
             Everything making up a transaction, and everything run in the
-            thread, is contained within this little function, including of
-            course a call to C{func}.
+            thread, is contained within this little function,
+            including of course a call to C{func}.
             """
             trans = self.connection.begin()
             if not hasattr(func, 'im_self'):
@@ -106,67 +112,12 @@ def transact(f):
                 result = func(*t_args, **t_kw)
             except Exception, e:
                 trans.rollback()
-                if not ignore:
-                    return failure.Failure(e)
-                return
-            if consumer:
-                # Maybe inefficient and inelegant to just store all
-                # the rows in result, but we need to free up the
-                # connection for the next call and don't want to be
-                # doing consumer.write() from inside the
-                # thread. Whatever time it takes to load everything
-                # with fetchall() won't affect the main loop since
-                # we're still inside the thread.
-                result = result.fetchall()
-            # We can commit now
+                if ignore:
+                    return
+                return failure.Failure(e)
+            # We can commit and release the lock now
             trans.commit()
-            if hasattr(self, 'rp'):
-                # Does this actually accomplish anything?
-                self.rp.close()
-                del self.rp
             return result
-
-        @defer.inlineCallbacks
-        def doTransaction(null):
-            """
-            Queues up the transaction and immediately returns a deferred to
-            its eventual result.
-
-            If the transaction resulted in a valid iterator and a
-            legit consumer was supplied via the consumer keyword, the
-            result is an IterationProduced and what is returned is a
-            deferred that fires when all iterations have been
-            produced. Because the rows have been loaded into memory at
-            that point, callers need not actually wait for the
-            deferred to fire before doing another transaction.
-            """
-            if isNested():
-                # An iterator only gets special treatment in the
-                # outermost @transact function
-                result = f(self, *args, **kw)
-            else:
-                # Here's where the ThreadQueue actually runs the transaction
-                result = yield self.q.call(transaction, f, *args, **kw)
-                if consumer:
-                    ip = asynqueue.iteratorToProducer(iter(result), consumer)
-                    if ip is None:
-                        if not ignore:
-                            # We couldn't iterate and are not ignoring
-                            # the error
-                            result = failure.Failure(Exception(
-                                "You can't consume from a non-iterator"))
-                    else:
-                        yield ip.run()
-                        result = None
-            defer.returnValue(result)
-
-        def started(null):
-            self.ranStart = True
-            del self._transactionStartupDeferred
-            d = self.connect()
-            d.addCallback(lambda _: self.q.call(
-                transaction, self.first, doNext=True))
-            return d
 
         def isNested():
             frame = sys._getframe()
@@ -181,26 +132,48 @@ def transact(f):
         consumer = kw.pop('consumer', None)
         if consumer:
             kw['raw'] = False
-        if hasattr(self, 'connection') and getattr(self, 'ranStart', False):
-            # We already have a connection, let's get right to the transaction
-            d = doTransaction(None)
-        elif hasattr(self, '_transactionStartupDeferred') and \
-             not self._transactionStartupDeferred.called:
-            # Startup is in progress, make a new Deferred to the start of the
-            # transaction and chain it to the startup Deferred.
-            d = defer.Deferred()
-            d.addCallback(doTransaction)
-            self._transactionStartupDeferred.chainDeferred(d)
+        if isNested():
+            # The call and its result only get special treatment in
+            # the outermost @transact function
+            result = f(self, *args, **kw)
         else:
-            # We need to start things up before doing this first transaction
-            d = defer.maybeDeferred(self.startup)
-            self._transactionStartupDeferred = d
-            d.addCallback(started)
-            d.addCallback(doTransaction)
-        # Return whatever Deferred we've got
-        return d
+            # Here's where the ThreadQueue actually runs the
+            # transaction
+            if not self.running:
+                # Not yet running, "wait" here for queue, engine, and
+                # connection
+                yield self.lock.acquire()
+                # We don't want to hold onto the lock because
+                # transactions are queued in the ThreadQueue
+                self.lock.release()
+            result = yield self.q.call(transaction, f, *args, **kw)
+            if getattr(result, 'returns_rows', False):
+                # A ResultsProxy...
+                if consumer:
+                    # ...with a consumer supplied, try to make an
+                    # IterationProducer couple to it
+                    ip = asynqueue.iteratorToProducer(iter(result), consumer)
+                    if ip is None:
+                        # We couldn't iterate
+                        if not ignore:
+                            # ...and are not ignoring the error
+                            result = failure.Failure(Exception(
+                                "You can't consume from a non-iterator"))
+                    else:
+                        # We have a working iteration producer, couple to
+                        # the supplied consumer. Get it running and "wait"
+                        # for all iterations to be produced.
+                        yield ip.run()
+                        result = None
+                else:
+                    # ...with no consumer supplied, return a Deferator
+                    iterator = iter(result)
+                    pf = asynqueue.Prefetcherator("ResultProxy")
+                    pf.setup(self.q.deferToThread, iterator.next)
+                    result = asynqueue.Deferator(pf)
+        defer.returnValue(result)
 
-    if f.func_name == 'first':
+    if f.func_name == 'first' and hasattr(f, 'im_self'):
         return f
     substituteFunction.func_name = f.func_name
     return substituteFunction
@@ -245,26 +218,24 @@ class AccessBroker(object):
         """
         return cls.qFactory(True, url, **kw)
     
-    def __init__(self, *url, **kw):
+    def __init__(self, *args, **kw):
         """
         Constructs an instance of me, optionally specifying parameters for
         an SQLAlchemy engine object that serves this instance only.
         """
         @defer.inlineCallbacks
         def startup(null):
-            if not url:
-                url = None
+            url = args[0] if args else None
             # Queue with attached engine, possibly shared with other
             # AccessBrokers
             self.q = yield self.qFactory(False, url, **kw)
             # A connection of my very own
-            self.connection = yield self.q.call(
-                self.q.engine.contextual_connect)
+            self.connection = yield self.connect()
             # Pre-transaction startup, called in main loop after
             # connection made.
             yield defer.maybeDeferred(self.startup)
             # First transaction, called via the queue
-            yield self.transact(self.first)
+            yield transact(self.first)
             # Ready for regular transactions
             self.running = True
             self.lock.release()
@@ -278,6 +249,20 @@ class AccessBroker(object):
         self.lock = asynqueue.DeferredLock()
         self.lock.acquire().addCallback(startup)
 
+    def connect(self):
+        def nowConnect(null):
+            return self.q.call(
+                self.q.engine.contextual_connect)
+        if not getattr(self, 'q', None):
+            return self.waitUntilRunning().addCallback(nowConnect)
+        return nowConnect(None)
+
+    @defer.inlineCallbacks
+    def waitUntilRunning(self):
+        if not self.running:
+            yield self.lock.acquire()
+            self.lock.release()
+    
     @defer.inlineCallbacks
     def table(self, name, *cols, **kw):
         """
@@ -437,11 +422,12 @@ class AccessBroker(object):
         yield sh
         sh.close()
 
-    def selectorator(self, cols, whereClause, joinClause=None):
+    def selectorator(self, selectObj):
         """
-        Given a list of table columns and a "where" clause (join clause?),
-        returns a Deferator yielding deferreds, each of which fires
-        with a successive row of the select's ResultProxy.
+        When called with a select object that results in an iterable
+        ResultProxy when executed, returns a a Deferator that can be
+        iterated over deferreds, each of which fires with a successive
+        row of the select's ResultProxy.
 
         Call directly, *not* from inside a transaction.
 
@@ -455,7 +441,7 @@ class AccessBroker(object):
                 raise StopIteration
             return row
         
-        rp = self.q.call() # select...
+        rp = self.q.call(self.connection.execute, selectObj)
         pf = asynqueue.Prefetcherator(repr(rp))
         pf.setup(self.q.deferToThread, next, rp)
         return asynqueue.Defetcherator(pf)

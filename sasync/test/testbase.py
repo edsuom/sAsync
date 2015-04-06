@@ -61,6 +61,49 @@ class MsgBase(object):
             print proto.format(*args)
 
 
+class MockTransaction(MsgBase):
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+        self.active = True
+        self.msg("Transaction begun")
+    def commit(self):
+        self.msg("Transaction committed")
+        self.active = False
+    def rollback(self):
+        self.msg("Transaction rolled back")
+        self.active = False
+
+class MockConnection(object):
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+        self.msg("Connection open")
+    def begin(self):
+        return MockTransaction()
+
+class MockQueue(object):
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+        self.lock = asynqueue.DeferredLock()
+    @defer.inlineCallbacks
+    def call(f, *args, **kw):
+        yield self.lock.acquire()
+        result = f(*args, **kw)
+        self.msg("Ran function {}", repr(f))
+        self.lock.release()
+        defer.returnValue(result)
+        
+class MockBroker(object):
+    def __init__(self, verbose=False, delay=0.1):
+        def running(null):
+            self.running = True
+            self.msg("Access Broker running")
+            self.lock.release()
+        self.verbose = verbose
+        self.lock = asynqueue.DeferredLock()
+        self.lock.acquire()
+        return deferToDelay(delay).addCallback(running)
+            
+
 class IterationConsumer(MsgBase):
     implements(IConsumer)
 

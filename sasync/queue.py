@@ -21,10 +21,12 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
 
 """
-Asynchronous database transactions via SQLAlchemy.
+Queuing for asynchronous database transactions via SQLAlchemy.
 """
 
 import logging
+
+from twisted.internet import defer
 
 import asynqueue
 

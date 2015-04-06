@@ -77,7 +77,7 @@ class MyBroker(AccessBroker):
     @transact
     def tableDelete(self, name):
         table = getattr(self, name)
-        #table.delete().execute()
+        table.delete().execute()
 
     @transact
     def insertions(self, null):
@@ -112,7 +112,7 @@ class MyBroker(AccessBroker):
         if not s('lastName'):
             s([self.people],
               self.people.c.name_last == bindparam('last'))
-        return self.fullName(s().execute(last=lastName).fetchone())
+        return self.fullName(s().execute(last=lastName).first())
 
     @transact
     def everybody(self):
@@ -131,11 +131,11 @@ class MyBroker(AccessBroker):
         def _getNewID(null):
             rows = select(
                 [self.people.c.id],
-                self.people.c.name_last == 'McCain').execute().fetchone()
+                self.people.c.name_last == 'McCain').execute().first()
             return rows[0]
 
         def _getFirstName(ID):
-            return self.people.select().execute(id=ID).fetchone()
+            return self.people.select().execute(id=ID).first()
 
         d = self.addPerson("John", "McCain")
         d.addCallback(transact, _getNewID)
@@ -175,15 +175,15 @@ class AutoSetupBroker(AccessBroker):
 
     @transact
     def transactionRequiringFirst(self):
-        row = self.people.select().execute(name_first='Firster').fetchone()
+        row = self.people.select().execute(name_first='Firster').first()
         return row['name_last']
 
 
 class TestStartupAndShutdown(TestCase):
     def setUp(self):
         self.broker = AccessBroker(DB_URL)
-        return self.broker.startup()
-        
+        return self.broker.waitUntilRunning()
+    
     @defer.inlineCallbacks
     def test_multipleShutdowns(self):
         for k in xrange(10):
@@ -235,6 +235,7 @@ class TestStartupAndShutdown(TestCase):
 class TestPrimitives(TestCase):
     def setUp(self):
         self.broker = MyBroker(DB_URL)
+        return self.broker.waitUntilRunning()
 
     def tearDown(self):
         return self.broker.shutdown()
@@ -466,7 +467,7 @@ class TestTransactions(TestCase):
                 cols = self.broker.people.c
                 with self.broker.selex(cols.name_first) as sh:
                     sh.where(cols.name_last == 'Luther')
-                    row = sh().fetchone()
+                    row = sh().first()
                 self.assertEqual(row[0], 'Martin')
             return self.broker.q.call(next)
         return self.createStuff().addCallbacks(run, self.oops)
