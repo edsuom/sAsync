@@ -30,6 +30,8 @@ from twisted.internet import reactor, defer
 
 from sqlalchemy import *
 
+from asynqueue import iteration
+
 from database import AccessBroker, transact
 from testbase import deferToDelay, IterationConsumer, TestCase
 
@@ -133,10 +135,8 @@ class MyBroker(AccessBroker):
                 [self.people.c.id],
                 self.people.c.name_last == 'McCain').execute().first()
             return rows[0]
-
         def _getFirstName(ID):
             return self.people.select().execute(id=ID).first()
-
         d = self.addPerson("John", "McCain")
         d.addCallback(transact, _getNewID)
         d.addCallback(transact, _getFirstName)
@@ -233,6 +233,8 @@ class TestStartupAndShutdown(TestCase):
 
 
 class TestPrimitives(TestCase):
+    verbose = False
+    
     def setUp(self):
         self.broker = MyBroker(DB_URL)
         return self.broker.waitUntilRunning()
@@ -269,7 +271,9 @@ class TestPrimitives(TestCase):
             prevItem = mutable.pop()
             while mutable:
                 thisItem = mutable.pop()
-                self.failUnlessEqual(thisItem, prevItem)
+                # Both should be connections, not necessarily the same
+                # one
+                self.failUnlessEqual(type(thisItem), type(prevItem))
                 prevItem = thisItem
             
         d1 = self.broker.connect().addCallback(gotConnection)
@@ -279,31 +283,26 @@ class TestPrimitives(TestCase):
         d3.addCallback(gotConnection)
         return defer.DeferredList([d1, d2, d3]).addCallback(gotAll)
 
+    @defer.inlineCallbacks
     def test_connectShutdownConnectAgain(self):
-        def newBroker(null):
-            self.broker = MyBroker(DB_URL)
-            return self.broker.connect()
-            
-        d = self.broker.connect()
-        d.addCallback(lambda _: self.broker.shutdown())
-        d.addCallback(newBroker)
-        return d
+        firstConnection = yield self.broker.connect()
+        yield self.broker.shutdown()
+        self.broker = MyBroker(DB_URL)
+        secondConnection = yield self.broker.connect()
+        self.failUnlessEqual(
+            type(firstConnection), type(secondConnection))
 
     def test_table(self):
         mutable = []
-
         def getTable():
             return self.broker.table(
                 'very_cool_table',
                 Column('id', Integer, primary_key=True),
                 Column('Whatever', String(32)))
-
         def gotTable(table):
             mutable.append(table)
-
         def gotAll(null):
             self.failUnlessEqual(len(mutable), 3)
-            
         d1 = getTable().addCallback(gotTable)
         d2 = getTable().addCallback(gotTable)
         d3 = deferToDelay(DELAY)
@@ -367,13 +366,14 @@ class TestPrimitives(TestCase):
         
 
 class TestTransactions(TestCase):
-    verbose = False
+    verbose = True
     
     se = re.compile(r"sqlalchemy.+[eE]ngine")
     st = re.compile(r"sqlalchemy.+[tT]able")
         
     def setUp(self):
         self.broker = MyBroker(DB_URL)
+        return self.broker.waitUntilRunning()
 
     def tearDown(self):
         return self.broker.shutdown()
@@ -434,11 +434,24 @@ class TestTransactions(TestCase):
 
     @defer.inlineCallbacks
     def test_iterate(self):
+        yield self.broker.setUpPeopleTable()
+        dr = yield self.broker.everybody()
+        self.assertIsInstance(dr, iteration.Deferator)
+        self.msg("Deferator: {}", dr)
+        rows = []
+        for k, d in enumerate(dr):
+            row = yield d
+            self.msg("Row #{:d}: {}", k+1, row)
+            rows.append(row)
+        self.assertEqual(len(rows), 5)
+    
+    @defer.inlineCallbacks
+    def test_iterate_withConsumer(self):
         consumer = IterationConsumer(self.verbose)
         yield self.broker.setUpPeopleTable()
         yield self.broker.everybody(consumer=consumer)
         self.assertEqual(len(consumer.data), 5)
-
+        
     @defer.inlineCallbacks
     def test_iterate_nextWhileIterating(self):
         slowConsumer = IterationConsumer(self.verbose, writeTime=0.2)

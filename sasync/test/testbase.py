@@ -132,7 +132,8 @@ class IterationConsumer(MsgBase):
                 self.producer.resumeProducing()
         
         self.data.append(data)
-        self.msg("Data received: '{}'", str(data))
+        self.msg(
+            "Data received from {}: '{}'", repr(self.producer), str(data))
         if self.writeTime:
             self.producer.pauseProducing()
             self.d = deferToDelay(

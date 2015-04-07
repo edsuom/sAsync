@@ -43,7 +43,21 @@ class Factory(object):
     
     def key(self, url, kw):
         return hash((url, tuple(kw.items())))
-    
+
+    def kill(self, q):
+        """
+        Removes the supplied queue object from my queue cache and shuts
+        down the queue. Returns a deferred that fires when the removal
+        and shutdown are done.
+        """
+        keysAffected = []
+        for key, value in self.queues.iteritems():
+            if value == q:
+                keysAffected.append(key)
+        for key in keysAffected:
+            del self.queues[key]
+        return q.shutdown()
+        
     def __call__(self, isGlobal, url, **kw):
         """
         Returns a deferred that fires with an Asynqueue ThreadQueue that
@@ -77,7 +91,8 @@ class Factory(object):
             if isGlobal:
                 # For global, save a default reference, too
                 self.queues[None] = q
-
+            return q
+        
         if isGlobal and not url:
             raise ValueError("Must specify a url to set a global default")
         if url:
@@ -88,5 +103,7 @@ class Factory(object):
             raise KeyError("No global queue defined")
         if key in self.queues:
             return defer.succeed(self.queues[key])
+        # Iterators are always returned as raw because my AccessBroker
+        # is smarter at handling them than the AsynQueue package is.
         q = asynqueue.ThreadQueue(raw=True)
         return q.call(makeEngine).addCallback(gotEngine)

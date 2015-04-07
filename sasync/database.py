@@ -34,8 +34,22 @@ import sqlalchemy as SA
 from sqlalchemy import pool
 
 import asynqueue
+from asynqueue import iteration
 
 import select, queue
+
+
+def nextFromRP(rp):
+    print "NFR"
+    try:
+        row = rp.fetchone()
+    except:
+        row = None
+    if row:
+        print "ROW", row
+        return row
+    print "SI"
+    raise StopIteration
 
 
 def transact(f):
@@ -127,11 +141,9 @@ def transact(f):
                     return False
                 if frame.f_code == transaction.func_code:
                     return True
-
+                    
         ignore = kw.pop('ignore', False)
         consumer = kw.pop('consumer', None)
-        if consumer:
-            kw['raw'] = False
         if isNested():
             # The call and its result only get special treatment in
             # the outermost @transact function
@@ -146,31 +158,30 @@ def transact(f):
                 # We don't want to hold onto the lock because
                 # transactions are queued in the ThreadQueue
                 self.lock.release()
+            print "\nA", f, args, kw
             result = yield self.q.call(transaction, f, *args, **kw)
             if getattr(result, 'returns_rows', False):
-                # A ResultsProxy...
+                # A ResultsProxy...                
+                pf = iteration.Prefetcherator(repr(result))
+                ok = yield pf.setup(self.q.deferToThread, nextFromRP, result)
+                if not ok:
+                    # Prefetcherator wouldn't accept it (will this
+                    # ever happen)?
+                    if not ignore:
+                        # ...and are not ignoring the error
+                        result = failure.Failure(Exception(
+                            "Prefetcherator rejected results proxy!"))
+                dr = iteration.Deferator(pf)
+                # ...that produced a fine, capable Deferator
                 if consumer:
-                    # ...with a consumer supplied, try to make an
+                    # ...with a consumer supplied, so try to make an
                     # IterationProducer couple to it
-                    ip = asynqueue.iteratorToProducer(iter(result), consumer)
-                    if ip is None:
-                        # We couldn't iterate
-                        if not ignore:
-                            # ...and are not ignoring the error
-                            result = failure.Failure(Exception(
-                                "You can't consume from a non-iterator"))
-                    else:
-                        # We have a working iteration producer, couple to
-                        # the supplied consumer. Get it running and "wait"
-                        # for all iterations to be produced.
-                        yield ip.run()
-                        result = None
+                    ip = iteration.IterationProducer(dr, consumer)
+                    yield ip.run()
+                    result = None
                 else:
-                    # ...with no consumer supplied, return a Deferator
-                    iterator = iter(result)
-                    pf = asynqueue.Prefetcherator("ResultProxy")
-                    pf.setup(self.q.deferToThread, iterator.next)
-                    result = asynqueue.Deferator(pf)
+                    # ...with no consumer supplied, just return the Deferator
+                    result = dr
         defer.returnValue(result)
 
     if f.func_name == 'first' and hasattr(f, 'im_self'):
@@ -183,16 +194,17 @@ class AccessBroker(object):
     """
     I manage asynchronous access to a database.
 
-    Before you use any instance of me, you must specify the parameters for
-    creating an SQLAlchemy database engine. A single argument is used, which
-    specifies a connection to a database via an RFC-1738 url. In addition, the
-    following keyword options can be employed, which are listed below with
-    their default values.
+    Before you use any instance of me, you must specify the parameters
+    for creating an SQLAlchemy database engine. A single argument is
+    used, which specifies a connection to a database via an RFC-1738
+    url. In addition, the following keyword options can be employed,
+    which are listed below with their default values.
 
     You can set an engine globally, for all instances of me via the
     L{sasync.engine} package-level function, or via my L{engine} class
-    method. Alternatively, you can specify an engine for one particular
-    instance by supplying the parameters to the constructor.
+    method. Alternatively, you can specify an engine for one
+    particular instance by supplying the parameters to the
+    constructor.
 
     Because I employ AsynQueue to queue up transactions asynchronously
     and perform them one at a time, I don't need or want a connection
@@ -263,7 +275,6 @@ class AccessBroker(object):
             yield self.lock.acquire()
             self.lock.release()
     
-    @defer.inlineCallbacks
     def table(self, name, *cols, **kw):
         """
         Instantiates a new table object, creating it in the transaction
@@ -276,7 +287,7 @@ class AccessBroker(object):
         list or tuple containing the names of all columns in the
         index.
         """
-        def table():
+        def makeTable():
             if not hasattr(self, '_meta'):
                 self._meta = SA.MetaData(self.q.engine)
             indexes = {}
@@ -294,7 +305,7 @@ class AccessBroker(object):
             setattr(self, name, table)
             return table, indexes
 
-        def index(tableInfo):
+        def makeIndex(tableInfo):
             table, indexes = tableInfo
             for key, info in indexes.iteritems():
                 kwIndex = {'unique':info[1]}
@@ -302,16 +313,16 @@ class AccessBroker(object):
                     # This is stupid. Why can't I see if the index
                     # already exists and only create it if needed?
                     index = SA.Index(
-                        key,
-                        *[getattr(table.c, x) for x in info[0]],
-                        **kwIndex)
+                        key, *[
+                            getattr(table.c, x) for x in info[0]], **kwIndex)
                     index.create()
                 except:
                     pass
 
-        if not hasattr(self, name):
-            tableInfo = yield self.q.call(table, doNext=True)
-            yield self.q.call(index, x, doNext=True)
+        if hasattr(self, name):
+            return defer.succeed(None)
+        return self.q.deferToThread(makeTable).addCallback(
+            lambda x: self.q.deferToThread(makeIndex, x))
     
     def startup(self):
         """
@@ -355,7 +366,7 @@ class AccessBroker(object):
             yield self.q.call(closeConnection)
             self.running = False
             self.lock.release()
-            yield self.q.shutdown()
+            yield self.qFactory.kill(self.q)
     
     def s(self, *args, **kw):
         """
@@ -434,16 +445,9 @@ class AccessBroker(object):
         # TODO: Finish & test. Need to generalize some of the transact
         stuff so this method call can use it, too.
         """
-        def next(rp):
-            try:
-                row = rp.fetchone()
-            except:
-                raise StopIteration
-            return row
-        
         rp = self.q.call(self.connection.execute, selectObj)
         pf = asynqueue.Prefetcherator(repr(rp))
-        pf.setup(self.q.deferToThread, next, rp)
+        pf.setup(self.q.deferToThread, nextFromRP, rp)
         return asynqueue.Defetcherator(pf)
 
     def deferToQueue(self, func, *args, **kw):
