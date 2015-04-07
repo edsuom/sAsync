@@ -442,6 +442,7 @@ class TestTransactions(TestCase):
         for k, d in enumerate(dr):
             row = yield d
             self.msg("Row #{:d}: {}", k+1, row)
+            self.assertNotIn(row, rows)
             rows.append(row)
         self.assertEqual(len(rows), 5)
     
@@ -495,6 +496,29 @@ class TestTransactions(TestCase):
                 self.assertGreater(N, 0)
             return self.broker.q.call(next)
         return self.createStuff().addCallbacks(run, self.oops)
+
+    @defer.inlineCallbacks        
+    def test_selectorator(self):
+        yield self.broker.setUpPeopleTable()
+        cols = self.broker.people.c
+        s = self.broker.select([cols.name_last, cols.name_first])
+        dr = yield self.broker.selectorator(s)
+        rows = []
+        for k, d in enumerate(dr):
+            row = yield d
+            self.msg("Row #{:d}: {}", k+1, row)
+            self.assertNotIn(row, rows)
+            rows.append(row)
+        self.assertEqual(len(rows), 5)
+
+    @defer.inlineCallbacks
+    def test_selectorator_withConsumer(self):
+        consumer = IterationConsumer(self.verbose)
+        yield self.broker.setUpPeopleTable()
+        cols = self.broker.people.c
+        s = self.broker.select([cols.name_last, cols.name_first])
+        yield self.broker.selectorator(s, consumer)
+        self.assertEqual(len(consumer.data), 5)
     
     def test_transactMany(self):
         def run(null):
