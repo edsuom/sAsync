@@ -162,21 +162,25 @@ class MyBroker(AccessBroker):
 
 class AutoSetupBroker(AccessBroker):
     def startup(self):
-        d = self.table(
+        print "STARTUP"
+        return self.table(
             'people',
             Column('id', Integer, primary_key=True),
             Column('name_first', String(32)),
             Column('name_last', String(32)))
-        return d
 
     def first(self):
+        print "FIRST"
+        #import pdb; pdb.set_trace()
         self.people.insert().execute(
             name_first='Firster', name_last='Firstman')
 
     @transact
     def transactionRequiringFirst(self):
+        print "THEN"
         row = self.people.select().execute(name_first='Firster').first()
-        return row['name_last']
+        if row:
+            return row['name_last']
 
 
 class TestStartupAndShutdown(TestCase):
@@ -510,11 +514,13 @@ class TestTransactions(TestCase):
         d.addCallback(self.failUnlessEqual, 2)
         return d
 
+    @defer.inlineCallbacks
     def test_firstTransaction(self):
-        broker = AutoSetupBroker(DB_URL)
-        d = broker.transactionRequiringFirst()
-        d.addCallback(self.failUnlessEqual, 'Firstman')
-        return d
+        self.fail("This hangs, fix!")
+        #broker = AutoSetupBroker(DB_URL)
+        #yield broker.waitUntilRunning()
+        #result = yield broker.transactionRequiringFirst()
+        #self.failUnlessEqual(result, 'Firstman')
 
     def test_nestTransactions(self):
         d = self.broker.nestedTransaction(1)

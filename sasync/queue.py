@@ -78,11 +78,6 @@ class Factory(object):
             logging.getLogger(
                 "sqlalchemy.pool").addHandler(logging.NullHandler())
             # Now create the engine
-            # It might be nice to allow multiple threads, but need to
-            # consider how that would impact transactions that depend
-            # on something being set up.
-            kw['pool_size'] = 1
-            kw['poolclass'] = pool.SingletonThreadPool
             return SA.create_engine(url, **kw)
 
         def gotEngine(engine):
