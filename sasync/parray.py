@@ -87,7 +87,7 @@ class Transactor(AccessBroker):
                         array.c.y == SA.bindparam('y'),
                         array.c.z == SA.bindparam('z'))
                 )
-        rows = self.s().execute(x=hash(x), y=hash(y), z=hash(z)).fetchonly()
+        rows = self.s().execute(x=hash(x), y=hash(y), z=hash(z)).first()
         return rows['value'] if rows else None
 
     @transact
@@ -157,16 +157,12 @@ class PersistentArray(object):
             self.ID = hash(ID)
         except:
             raise TypeError("Item IDs must be hashable")
+        self.dt = DeferredTracker()
         self.t = Transactor(self.ID, *url[:1], **kw)
-        self.dt = asynqueue.DeferredTracker()
-        reactor.addSystemEventTrigger('before', 'shutdown', self.shutdown)
+        for name in ('waitUntilRunning', 'callWhenRunning', 'shutdown'):
+            setattr(self, name, getattr(self.t, name))
+        self.dt.put(self.waitUntilRunning())
     
-    def shutdown(self, *null):
-        """
-        Shuts down my database L{Transactor} and its synchronous task queue.
-        """
-        return self.t.shutdown()
-
     def write(self, funcName, *args, **kw):
         """
         Performs a database write transaction, returning a deferred to its
@@ -174,15 +170,14 @@ class PersistentArray(object):
         """
         func = getattr(self.t, funcName)
         kw = {'niceness':kw.get('niceness', NICENESS_WRITE)}
-        return func(*args, **kw)
+        return self.callWhenRunning(func, *args, **kw)
 
     def get(self, x, y, z):
         """
         Retrieves an element (x,y,z) from the database.
         """
-        d = self.dt.deferToAll()
-        d.addCallback(lambda _: self.t.load(x, y, z))
-        return d
+        return self.dt.deferToAll().addCallback(
+            lambda _: self.t.load(x, y, z))
 
     def set(self, x, y, z, value):
         """
@@ -194,8 +189,7 @@ class PersistentArray(object):
                 return self.write("insert", x, y, z, value)
             return self.write("update", x, y, z, value)
         
-        d = self.t.load(x, y, z)
-        d.addCallback(loaded)
+        d = self.callWhenRunning(self.t.load, x, y, z).addCallback(loaded)
         self.dt.put(d)
         return d
 

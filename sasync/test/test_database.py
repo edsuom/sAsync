@@ -162,7 +162,6 @@ class MyBroker(AccessBroker):
 
 class AutoSetupBroker(AccessBroker):
     def startup(self):
-        print "STARTUP"
         return self.table(
             'people',
             Column('id', Integer, primary_key=True),
@@ -170,14 +169,11 @@ class AutoSetupBroker(AccessBroker):
             Column('name_last', String(32)))
 
     def first(self):
-        print "FIRST"
-        #import pdb; pdb.set_trace()
         self.people.insert().execute(
             name_first='Firster', name_last='Firstman')
 
     @transact
     def transactionRequiringFirst(self):
-        print "THEN"
         row = self.people.select().execute(name_first='Firster').first()
         if row:
             return row['name_last']
@@ -257,8 +253,8 @@ class TestPrimitives(TestCase):
         return d
 
     def test_errbackTransact(self):
-        def errback(failure):
-            self.failUnless(isinstance(failure, Failure))
+        def errback(failureObj):
+            self.failUnless(isinstance(failureObj, Failure))
 
         d = self.broker.erroneousTransaction()
         d.addCallbacks(
@@ -370,7 +366,7 @@ class TestPrimitives(TestCase):
         
 
 class TestTransactions(TestCase):
-    verbose = True
+    verbose = False
     
     se = re.compile(r"sqlalchemy.+[eE]ngine")
     st = re.compile(r"sqlalchemy.+[tT]able")
@@ -516,11 +512,10 @@ class TestTransactions(TestCase):
 
     @defer.inlineCallbacks
     def test_firstTransaction(self):
-        self.fail("This hangs, fix!")
-        #broker = AutoSetupBroker(DB_URL)
-        #yield broker.waitUntilRunning()
-        #result = yield broker.transactionRequiringFirst()
-        #self.failUnlessEqual(result, 'Firstman')
+        broker = AutoSetupBroker(DB_URL)
+        yield broker.waitUntilRunning()
+        result = yield broker.transactionRequiringFirst()
+        self.failUnlessEqual(result, 'Firstman')
 
     def test_nestTransactions(self):
         d = self.broker.nestedTransaction(1)

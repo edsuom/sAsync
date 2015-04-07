@@ -26,12 +26,15 @@ Unit tests for sasync.pdict.py.
 
 import os
 from twisted.internet import defer, reactor
-from twisted.trial.unittest import TestCase
 
 import sqlalchemy as SA
-import sasync
-from sasync.pdict import PersistentDict
-from sasync.parray import PersistentArray
+
+from queue import Factory
+from pdict import PersistentDict
+from parray import PersistentArray
+
+from twisted.trial.unittest import TestCase
+
 
 ID = 341
 VERBOSE = False
@@ -39,7 +42,7 @@ VERBOSE = False
 
 db = '/tmp/pdict.db'
 URL = "sqlite:///%s" % db
-sasync.engine(URL)
+Factory.setGlobal(URL)
 
 
 def itemsEqual(itemsA, itemsB):
@@ -57,7 +60,7 @@ def itemsEqual(itemsA, itemsB):
 
 
 class TestPlayNice(TestCase):
-    def testShutdown(self):
+    def test_shutdown(self):
         def first(null):
             y = PersistentDict('alpha')
             d = y['eagle']
@@ -66,35 +69,24 @@ class TestPlayNice(TestCase):
         
         x = PersistentDict('alpha')
         x['eagle'] = 'bald'
-        d = x.shutdown()
-        d.addCallback(first)
-        return d
-    
-    def testSequentiallyStartedDicts(self):
+        return x.shutdown().addCallback(first)
+
+    @defer.inlineCallbacks
+    def test_sequentiallyStartedDicts(self):
         x = PersistentDict('alpha')
         y = PersistentDict('bravo')
-        
-        def first():
-            d = x.preload()
-            d.addCallback(lambda _: y.preload())
-            return d
+        yield x.preload()
+        yield y.preload()
+        x['a'] = 1
+        y['a'] = 10
+        yield x.deferToWrites()
+        self.failUnlessEqual(x['a'], 1)
+        yield y.deferToWrites()
+        self.failUnlessEqual(y['a'], 10)
+        yield x.shutdown()
+        yield y.shutdown()
 
-        def second(null):
-            x['a'] = 1
-            y['a'] = 10
-            return defer.DeferredList([x.deferToWrites(), y.deferToWrites()])
-
-        def third(null):
-            self.failUnlessEqual(x['a'], 1)
-            self.failUnlessEqual(y['a'], 10)
-            return defer.DeferredList([x.shutdown(), y.shutdown()])
-        
-        d = first()
-        d.addCallback(second)
-        d.addCallback(third) 
-        return d
-
-    def testThreeSeparateDicts(self):
+    def test_threeSeparateDicts(self):
         def first():
             self.x['a'] = 1
             self.y['a'] = 10
@@ -141,7 +133,7 @@ class TestPlayNice(TestCase):
         d.addCallback(third)
         return d
 
-    def testThreeSeparatePreloadedDicts(self):
+    def test_threeSeparatePreloadedDicts(self):
         def first():
             d1 = self.x.preload()
             d2 = self.y.preload()
@@ -193,7 +185,7 @@ class TestPlayNice(TestCase):
         d.addCallback(fourth)
         return d
 
-    def testOneDictWithParray(self):
+    def test_oneDictWithParray(self):
         import sasync.parray as parray
         
         x = PersistentDict('foo')
@@ -216,7 +208,7 @@ class TestPlayNice(TestCase):
         d.addCallback(third)
         return d
 
-    def testTwoDictsWithParray(self):
+    def test_twoDictsWithParray(self):
         import sasync.parray as parray
         
         x = PersistentDict('foo')
@@ -296,23 +288,24 @@ class TestPdictNormalCore(PdictNormal, TestCase):
             d.addCallback(lambda _: self.p.items())
             d.addCallback(
                 itemsEqual,
-                [('a','alpha'), ('b','beta'), ('c','charlie'), ('d','delta')])
+                [('a','alpha'),
+                 ('b','beta'),
+                 ('c','charlie'),
+                 ('d','delta')])
             d.addCallback(self.failUnless, "Items not equal")
             return d
-        
-        d = self.writeToDB(a='alpha', b='bravo', c='charlie')
-        d.addCallback(setStuff)
-        return d
+        return self.writeToDB(
+            a='alpha', b='bravo', c='charlie').addCallback(setStuff)
 
+    @defer.inlineCallbacks
     def testWriteAndGet(self):
-        d = self.writeToDB(a=100, b=200, c='foo')
-        d.addCallback(lambda _: self.p['a'])
-        d.addCallback(self.failUnlessEqual, 100)
-        d.addCallback(lambda _: self.p['b'])
-        d.addCallback(self.failUnlessEqual, 200)
-        d.addCallback(lambda _: self.p['c'])
-        d.addCallback(self.failUnlessEqual, 'foo')
-        return d
+        yield self.writeToDB(a=100, b=200, c='foo')
+        x = yield self.p['a']
+        self.failUnlessEqual(x, 100)
+        y = yield self.p['b']
+        self.failUnlessEqual(y, 200)
+        z = yield self.p['c']
+        self.failUnlessEqual(z, 'foo')
 
 
 class TestPdictNormalMain(PdictNormal, TestCase):
@@ -377,7 +370,8 @@ class TestPdictNormalMain(PdictNormal, TestCase):
 
         d = self.p.deferToWrites()
         d.addCallback(lambda _: self.p.items())
-        d.addCallback(itemsEqual, [('a',1), ('b',2), ('c',3), ('d',4), ('e',5)])
+        d.addCallback(
+            itemsEqual, [('a',1), ('b',2), ('c',3), ('d',4), ('e',5)])
         d.addCallback(self.failUnless, "Items not equal")
         return d
 
@@ -411,7 +405,8 @@ class TestPdictNormalMain(PdictNormal, TestCase):
         
         def another(null):
             d = self.p.has_key('d')
-            d.addCallback(self.failIf, "Item 'd' shouldn't be in the dictionary")
+            d.addCallback(
+                self.failIf, "Item 'd' shouldn't be in the dictionary")
             return d
         
         d = self.clearDB()
@@ -461,7 +456,7 @@ class TestPdictPreload(PdictPreload, TestCase):
                 si = self.pit.sasync_items
                 row = si.select(
                     SA.and_(
-                    si.c.group_id==ID, si.c.name=='a')).execute().fetchone()
+                    si.c.group_id==ID, si.c.name=='a')).execute().first()
                 return row['value']
             return self.pit.deferToQueue(_second)
         d = self.clearDB()

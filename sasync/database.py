@@ -27,8 +27,8 @@ Asynchronous database transactions via SQLAlchemy.
 import sys, logging
 from contextlib import contextmanager
 
-from twisted.internet import defer
-from twisted.python import failure
+from twisted.internet import defer, reactor
+from twisted.python.failure import Failure
 
 import sqlalchemy as SA
 from sqlalchemy import pool
@@ -122,11 +122,11 @@ def transact(f):
                 t_args = (self,) + t_args
             try:
                 result = func(*t_args, **t_kw)
-            except Exception, e:
+            except Exception as e:
                 trans.rollback()
                 if ignore:
                     return
-                return failure.Failure(e)
+                return Failure(e)
             # We can commit and release the lock now
             trans.commit()
             return result
@@ -140,9 +140,13 @@ def transact(f):
                 if frame.f_code == transaction.func_code:
                     return True
 
+        def oops(failureObj):
+            # Encapsulate the failure object in a list to avoid the
+            # errback chain until we are ready.
+            return [failureObj]
+
         ignore = kw.pop('ignore', False)
         consumer = kw.pop('consumer', None)
-        skipLock = kw.pop('skipLock', False)
         if isNested():
             # The call and its result only get special treatment in
             # the outermost @transact function
@@ -150,7 +154,7 @@ def transact(f):
         else:
             # Here's where the ThreadQueue actually runs the
             # transaction
-            if not skipLock and (self.singleton or not self.running):
+            if self.singleton or not self.running:
                 # Not yet running, "wait" here for queue, engine, and
                 # connection
                 yield self.lock.acquire()
@@ -161,7 +165,8 @@ def transact(f):
                     # additional connections can be obtained when ding
                     # ResultProxy iteration.
                     self.lock.release()
-            result = yield self.q.call(transaction, f, *args, **kw)
+            result = yield self.q.call(
+                transaction, f, *args, **kw).addErrback(oops)
             if getattr(result, 'returns_rows', False):
                 # A ResultsProxy...                
                 pf = iteration.Prefetcherator(repr(result))
@@ -171,7 +176,7 @@ def transact(f):
                     # ever happen)?
                     if not ignore:
                         # ...and are not ignoring the error
-                        result = failure.Failure(Exception(
+                        result = Failure(Exception(
                             "Prefetcherator rejected results proxy!"))
                 dr = iteration.Deferator(pf)
                 # ...that produced a fine, capable Deferator
@@ -184,10 +189,14 @@ def transact(f):
                 else:
                     # ...with no consumer supplied, just return the Deferator
                     result = dr
-            if not skipLock and self.singleton:
+            if self.singleton:
                 # If we can't handle multiple connections, we held
                 # onto the lock throughout all of this
                 self.lock.release()
+        # If the result is a failure, raise its exception to trigger
+        # the errback outside this function
+        if isinstance(result, list) and isinstance(result[0], Failure):
+            result[0].raiseException()
         defer.returnValue(result)
 
     if f.func_name == 'first' and hasattr(f, 'im_self'):
@@ -239,29 +248,34 @@ class AccessBroker(object):
         Constructs a global queue for all instances of me, returning a
         deferred that fires with it.
         """
-        return cls.qFactory(True, url, **kw)
+        return cls.qFactory.setGlobal(url, **kw)
     
     def __init__(self, *args, **kw):
         """
         Constructs an instance of me, optionally specifying parameters for
         an SQLAlchemy engine object that serves this instance only.
         """
+        def firstAsTransaction():
+            with self.connection.begin():
+                self.first()
+        
         @defer.inlineCallbacks
         def startup(null):
-            url = args[0] if args else None
             # Queue with attached engine, possibly shared with other
             # AccessBrokers
-            self.q = yield self.qFactory(False, url, **kw)
+            self.q = yield self.qFactory(*args, **kw)
             # A connection of my very own
             self.connection = yield self.connect()
             # Pre-transaction startup, called in main loop after
             # connection made.
             yield defer.maybeDeferred(self.startup)
-            # First transaction, called via the queue
-            yield transact(self.first)()
+            # First transaction, called in thread
+            yield self.q.deferToThread(firstAsTransaction)
             # Ready for regular transactions
             self.running = True
             self.lock.release()
+            reactor.addSystemEventTrigger(
+                'before', 'shutdown', self.shutdown)
         
         self.selects = {}
         self.rowProxies = []
@@ -285,7 +299,11 @@ class AccessBroker(object):
         if not self.running:
             yield self.lock.acquire()
             self.lock.release()
-    
+
+    def callWhenRunning(self, f, *args, **kw):
+        return self.waitUntilRunning().addCallback(lambda _: f(*args, **kw))
+
+    @defer.inlineCallbacks
     def table(self, name, *cols, **kw):
         """
         Instantiates a new table object, creating it in the transaction
@@ -298,6 +316,9 @@ class AccessBroker(object):
         list or tuple containing the names of all columns in the
         index.
         """
+        def haveQueue():
+            return getattr(self, 'q', None)
+        
         def makeTable():
             if not hasattr(self, '_meta'):
                 self._meta = SA.MetaData(self.q.engine)
@@ -330,10 +351,14 @@ class AccessBroker(object):
                 except:
                     pass
 
-        if hasattr(self, name):
-            return defer.succeed(None)
-        return self.q.deferToThread(makeTable).addCallback(
-            lambda x: self.q.deferToThread(makeIndex, x))
+        if not hasattr(self, name):
+            if not haveQueue():
+                # This is tricky; startup hasn't finished, but making
+                # a table is likely to be part of the startup. What we
+                # really need to wait for is the presence of a queue.
+                yield iteration.Delay(backoff=1.02).untilEvent(haveQueue)
+            tableInfo = yield self.q.deferToThread(makeTable)
+            yield self.q.deferToThread(makeIndex, tableInfo)
     
     def startup(self):
         """
@@ -356,7 +381,7 @@ class AccessBroker(object):
         """
 
     @defer.inlineCallbacks
-    def shutdown(self):
+    def shutdown(self, *null):
         """
         Shuts down my database transaction functionality and threaded task
         queue, returning a deferred that fires when all queued tasks
@@ -463,20 +488,22 @@ class AccessBroker(object):
 
     def deferToQueue(self, func, *args, **kw):
         """
-        Dispatches I{callable(*args, **kw)} as a task via the like-named method
-        of my asynchronous queue, returning a deferred to its eventual result.
+        Dispatches I{callable(*args, **kw)} as a task via the like-named
+        method of my asynchronous queue, returning a deferred to its
+        eventual result.
 
-        Scheduling of the task is impacted by the I{niceness} keyword that can
-        be included in I{**kw}. As with UNIX niceness, the value should be an
-        integer where 0 is normal scheduling, negative numbers are higher
-        priority, and positive numbers are lower priority.
+        Scheduling of the call is impacted by the I{niceness} keyword
+        that can be included in I{**kw}. As with UNIX niceness, the
+        value should be an integer where 0 is normal scheduling,
+        negative numbers are higher priority, and positive numbers are
+        lower priority.
         
-        @keyword niceness: Scheduling niceness, an integer between -20 and 20,
-            with lower numbers having higher scheduling priority as in UNIX
-            C{nice} and C{renice}.
-        
+        @keyword niceness: Scheduling niceness, an integer between -20
+          and 20, with lower numbers having higher scheduling priority
+          as in UNIX C{nice} and C{renice}.
         """
-        return self.q.call(func, *args, **kw)
+        return self.waitUntilRunning().addCallback(
+            lambda _: self.q.call(func, *args, **kw))
 
 
 __all__ = ['transact', 'AccessBroker', 'SA']

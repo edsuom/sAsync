@@ -42,15 +42,11 @@ db = 'parray.db'
 class Parray:
     def setUp(self):
         self.a = parray.PersistentArray(GROUP_ID, "sqlite:///%s" % db)
-        # This shouldn't be needed in normal usage, but for test code we may
-        # access the table before a "real" transaction.
-        return self.a.t.startup()
 
     def tearDown(self):
         def _tearDown():
             sa = self.a.t.sasync_array
             sa.delete(sa.c.group_id == GROUP_ID).execute()
-
         d = self.a.t.deferToQueue(_tearDown, niceness=19)
         d.addCallback(self.a.shutdown)
         return d
@@ -59,12 +55,13 @@ class Parray:
         def _loadFromDB():
             sa = self.a.t.sasync_array
             row = sa.select(
-                SA.and_(sa.c.group_id == GROUP_ID,
-                        sa.c.x == SA.bindparam('x'),
-                        sa.c.y == SA.bindparam('y'),
-                        sa.c.z == SA.bindparam('z'))).execute().fetchone()
+                SA.and_(
+                    sa.c.group_id == GROUP_ID,
+                    sa.c.x == SA.bindparam('x'),
+                    sa.c.y == SA.bindparam('y'),
+                    sa.c.z == SA.bindparam('z'))
+            ).execute(x=x, y=y, z=z).first()
             return row
-
         return self.a.t.deferToQueue(_loadFromDB)
     
     def writeToDB(self, x, y, z, value):
@@ -79,84 +76,73 @@ class Parray:
         def _clearDB():
             self.a.t.sasync_array.delete(
                 self.a.t.sasync_array.c.group_id == GROUP_ID).execute()
-        
         return self.a.t.deferToQueue(_clearDB)
 
 
 class TestPersistentArray(Parray, TestCase):
     elements = ((1,2,3,'a'), (2,3,4,'b'), (4,5,6,'c'))
 
-    def writeStuff(self, null):
+    def writeStuff(self):
         dList = []
         for element in self.elements:
             dList.append(self.writeToDB(*element))
         return defer.DeferredList(dList)
-    
-    def testWriteAndGet(self):
-        d = self.clearDB()
-        d.addCallback(self.writeStuff)
-        d.addCallback(lambda _: self.a.get(1,2,3))
-        d.addCallback(self.failUnlessEqual, 'a')
-        d.addCallback(lambda _: self.a.get(2,3,4))
-        d.addCallback(self.failUnlessEqual, 'b')
-        d.addCallback(lambda _: self.a.get(4,5,6))
-        d.addCallback(self.failUnlessEqual, 'c')
-        return d
 
-    def testOverwriteAndGet(self):
-        d = self.clearDB()
-        d.addCallback(self.writeStuff)
-        d.addCallback(lambda _: self.a.get(1,2,3))
-        d.addCallback(self.failUnlessEqual, 'a')
-        d.addCallback(lambda _: self.a.set(1,2,3, 'foo'))
-        d.addCallback(lambda _: self.a.get(1,2,3))
-        d.addCallback(self.failUnlessEqual, 'foo')
-        return d
-    
-    def testDeleteAndCheck(self):
-        d = self.clearDB()
-        d.addCallback(self.writeStuff)
-        d.addCallback(lambda _: self.a.delete(1,2,3))
-        d.addCallback(lambda _: self.loadFromDB(1,2,3))
-        d.addCallback(self.failIf)
-        return d
+    @defer.inlineCallbacks
+    def test_writeAndGet(self):
+        yield self.clearDB()
+        yield self.writeStuff()
+        x = yield self.a.get(1,2,3)
+        self.assertEqual(x, 'a')
+        x = yield self.a.get(2,3,4)
+        self.assertEqual(x, 'b')
+        x = yield self.a.get(4,5,6)
+        self.assertEqual(x, 'c')
 
-    def testClearAndCheck(self):
-        def check(null):
-            d1 = defer.Deferred()
-            @defer.deferredGenerator
-            def _check():
-                for element in self.elements:
-                    wfd = defer.waitForDeferred(self.loadFromDB(*element[0:3]))
-                    yield wfd
-                    result = wfd.getResult()
-                    self.failIf(
-                        result, "Should have empty row, got '%s'" % result)
-            d2 = _check()
-            d2.chainDeferred(d1)
-            return d1
-        
-        d = self.clearDB()
-        d.addCallback(self.writeStuff)
-        d.addCallback(lambda _: self.a.clear())
-        d.addCallback(check)
-        return d
+    @defer.inlineCallbacks
+    def test_overwriteAndGet(self):
+        yield self.clearDB()
+        yield self.writeStuff()
+        x = yield self.a.get(1,2,3)
+        self.assertEqual(x, 'a')
+        yield self.a.set(1,2,3, 'foo')
+        x = yield self.a.get(1,2,3)
+        self.assertEqual(x, 'foo')
 
-    def testSetAndGet(self):
-        d = self.clearDB()
-        d.addCallback(lambda _: self.a.set(1,2,3, True))
-        d.addCallback(lambda _: self.a.get(1,2,3))
-        d.addCallback(self.failUnlessEqual, True)
-        return d
+    @defer.inlineCallbacks
+    def test_deleteAndCheck(self):
+        yield self.clearDB()
+        yield self.writeStuff()
+        yield self.a.delete(1,2,3)
+        x = yield self.loadFromDB(1,2,3)
+        self.assertEqual(x, None)
 
-    def testDimensions(self):
-        d = self.clearDB()
-        d.addCallback(self.writeStuff)
-        d.addCallback(lambda _: self.a.get(1,2,4))
-        d.addCallback(self.failUnlessEqual, None)
-        d.addCallback(lambda _: self.a.get(1,3,3))
-        d.addCallback(self.failUnlessEqual, None)
-        d.addCallback(lambda _: self.a.get(2,2,3))
-        d.addCallback(self.failUnlessEqual, None)
-        return d
+    @defer.inlineCallbacks
+    def test_clearAndCheck(self):
+        yield self.clearDB()
+        yield self.writeStuff()
+        self.a.clear()
+        for element in self.elements:
+            result = yield self.loadFromDB(*element[0:3])
+            self.assertEqual(
+                result, None,
+                "Should have empty row, got '{}'".format(result))
+
+    @defer.inlineCallbacks
+    def test_setAndGet(self):
+        yield self.clearDB()
+        yield self.a.set(1,2,3, True)
+        x = yield self.a.get(1,2,3)
+        self.assertEqual(x, True)
+
+    @defer.inlineCallbacks
+    def test_dimensions(self):
+        yield self.clearDB()
+        yield self.writeStuff()
+        x = yield self.a.get(1,2,4)
+        self.assertEqual(x, None)
+        x = yield self.a.get(1,3,3)
+        self.assertEqual(x, None)
+        x = yield self.a.get(2,2,3)
+        self.assertEqual(x, None)
     

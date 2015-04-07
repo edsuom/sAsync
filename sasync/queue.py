@@ -33,32 +33,93 @@ import asynqueue
 import sqlalchemy as SA
 from sqlalchemy import pool
 
+
 class Factory(object):
     """
     I generate ThreadQueue objects, a unique one for each call to me
     with a unique url-kw combination.
     """
+    globalQueue = None
+    
     def __init__(self):
         self.queues = {}
-    
-    def key(self, url, kw):
-        return hash((url, tuple(kw.items())))
 
+    @staticmethod
+    def newQueue(url, **kw):
+        """
+        Returns a deferred that fires with a new ThreadQueue that has a
+        new SQLAlchemy engine attached as its 'engine' attribute.
+        """
+        def getEngine():
+            # Add a NullHandler to avoid "No handlers could be
+            # found for logger sqlalchemy.pool." messages
+            logging.getLogger(
+                "sqlalchemy.pool").addHandler(logging.NullHandler())
+            # Now create the engine
+            return SA.create_engine(url, **kw)
+        def gotEngine(engine):
+            q.engine = engine
+            return q
+        # Iterators are always returned as raw because ResultProxy
+        # objects are iterators but sAsync is smarter at handling them
+        # than AsynQueue.
+        q = asynqueue.ThreadQueue(raw=True)
+        return q.call(getEngine).addCallback(gotEngine)
+        
+    @classmethod
+    def getGlobal(cls):
+        """
+        Returns a deferred reference to the global queue, assuming one has
+        been defined with L{setGlobal}.
+
+        Calling this method, or L{get} without a url argument, is the
+        only approved way to get a reference to the global queue.
+        """
+        if cls.globalQueue:
+            return defer.succeed(cls.globalQueue)
+        d = defer.Deferred()
+        if hasattr(cls, 'd') and not cls.d.called:
+            cls.d.chainDeferred(d)
+        else:
+            cls.d = d
+        return d
+        
+    @classmethod
+    def setGlobal(cls, url, **kw):
+        """
+        Sets up a global queue and engine, storing as the default and
+        returning a deferred reference to it.
+
+        Calling this method is the only approved way to set the global
+        queue.
+        """
+        def gotQueue(q):
+            del cls.d
+            cls.globalQueue = q
+            return q
+        cls.d = cls.newQueue(url, **kw).addCallback(gotQueue)
+        return cls.d
+        
     def kill(self, q):
         """
-        Removes the supplied queue object from my queue cache and shuts
-        down the queue. Returns a deferred that fires when the removal
-        and shutdown are done.
+        Removes the supplied queue object from my local queue cache and
+        shuts down the queue. Returns a deferred that fires when the
+        removal and shutdown are done.
+
+        Has no effect on the global queue.
         """
-        keysAffected = []
         for key, value in self.queues.iteritems():
             if value == q:
-                keysAffected.append(key)
-        for key in keysAffected:
-            del self.queues[key]
+                # Found it. Delete and quit looking.
+                del self.queues[key]
+                break
+        if q == self.globalQueue:
+            # We can't kill the global queue
+            return defer.succeed(None)
+        # Shut 'er down
         return q.shutdown()
-        
-    def __call__(self, isGlobal, url, **kw):
+
+    def __call__(self, *url, **kw):
         """
         Returns a deferred that fires with an Asynqueue ThreadQueue that
         has an SQLAlchemy engine attached to it, constructed with the
@@ -69,36 +130,22 @@ class Factory(object):
         parameters, that same one is returned. Otherwise, a new one is
         constructed and saved for a repeat call.
 
-        If the url is C{None}, the global default queue will be
+        If there is no url argument, the global default queue will be
         returned. There must be one for that to work, of course.
-        """
-        def makeEngine():
-            # Add a NullHandler to avoid "No handlers could be
-            # found for logger sqlalchemy.pool." messages
-            logging.getLogger(
-                "sqlalchemy.pool").addHandler(logging.NullHandler())
-            # Now create the engine
-            return SA.create_engine(url, **kw)
 
-        def gotEngine(engine):
-            q.engine = engine
+        Separate instances of me can have separate queues for the
+        exact same url-kw parameters. But all instances share the same
+        global queue.
+        """
+        def gotQueue(q):
             self.queues[key] = q
-            if isGlobal:
-                # For global, save a default reference, too
-                self.queues[None] = q
             return q
-        
-        if isGlobal and not url:
-            raise ValueError("Must specify a url to set a global default")
+
         if url:
-            key = self.key(url, kw)
-        elif None in self.queues:
-            key = None
-        else:
-            raise KeyError("No global queue defined")
-        if key in self.queues:
-            return defer.succeed(self.queues[key])
-        # Iterators are always returned as raw because my AccessBroker
-        # is smarter at handling them than the AsynQueue package is.
-        q = asynqueue.ThreadQueue(raw=True)
-        return q.call(makeEngine).addCallback(gotEngine)
+            url = url[0]
+            key = hash((url, tuple(kw.items())))
+            if key in self.queues:
+                return defer.succeed(self.queues[key])
+            return self.newQueue(url, **kw).addCallback(gotQueue)
+        return self.getGlobal()
+

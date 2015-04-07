@@ -171,9 +171,6 @@ class Items(object):
     L{sasync.engine} package-level function, or via the L{AccessBroker.engine}
     class method. Alternatively, you can specify an engine for one particular
     instance by supplying the parameters to my constructor.
-    
-    B{IMPORTANT}: Make sure you call my L{shutdown} method for an instance of
-    me that you're done with before allowing that instance to be deleted.
     """
     search = None
     
@@ -193,9 +190,6 @@ class Items(object):
             will be coerced to after being loaded as a string from the
             database.
 
-        @keyword search: Set C{True} if text indexing is to be performed on items
-            as they are written.
-
         """
         try:
             self.groupID = hash(ID)
@@ -209,50 +203,18 @@ class Items(object):
             self.t = Transactor(self.groupID, url[0], **kw)
         else:
             self.t = Transactor(self.groupID)
+        for name in ('waitUntilRunning', 'callWhenRunning', 'shutdown'):
+            setattr(self, name, getattr(self.t, name))
 
-    def shutdown(self, *null):
-        """
-        Shuts down my database L{Transactor} and its synchronous task queue.
-        """
-        return self.t.shutdown()
-
-    def write(self, funcName, name, value, niceness=0):
+    def write(self, funcName, name, value, niceness=None):
         """
         Performs a database write transaction, returning a deferred to its
         completion.
-
-        If we are updating the search index, there's a nuance to the
-        deferred processing. In that case, when the write is done, the
-        deferred is fired and processing separately proceeds with indexing
-        of the written value. Here's how it works:
-
-            1. Create a clean deferred B{d1} to return to the caller, whose
-            callback(s) will be fired from the callback to the transaction's
-            own deferred B{d2}.
-
-            2. Start the write transaction and assign the C{writeDone} function
-            as the callback to its deferred B{d2}. Note that the
-            defer-to-queue transaction keeps a reference to the deferred
-            object it instantiates, so we don't have to do so for either B{d2}
-            or B{d3}. Those references are merely defined in the method for
-            code readability.
-
         """
-        def writeDone(noneResult, d1):
-            d3 = self.search.index(
-                value, document=self.groupID, section=hash(name))
-            d3.addCallback(self.search.ready)
-            d1.callback(None)
-
         func = getattr(self.t, funcName)
-        if self.search is None:
-            return func(name, value, niceness=niceness)
-        else:        
-            d1 = defer.Deferred()
-            self.search.busy()
-            d2 = func(name, value, niceness=niceness)
-            d2.addCallback(writeDone, d1)
-            return d1
+        if niceness is None:
+            niceness = NICENESS_WRITE
+        return self.callWhenRunning(func, name, value, niceness=niceness)
     
     def load(self, name):
         """
@@ -260,38 +222,36 @@ class Items(object):
         loaded value. A L{Missing} object represents the value of a missing
         item.
         """
-        return self.t.load(name)
-    
+        return self.callWhenRunning(self.t.load, name)
+
+    @defer.inlineCallbacks
     def loadAll(self):
         """
-        Loads all items in my group from the database, returning a deferred
-        to a dict of the loaded values. The keys of the dict are coerced to the
-        type of my I{nameType} attribute.
+        Loads all items in my group from the database, returning a
+        deferred to a dict of the loaded values. The keys of the dict
+        are coerced to the type of my I{nameType} attribute.
         """
-        def loaded(valueDict):
-            newDict = {}
-            for name, value in valueDict.iteritems():
-                key = self.nameType(name)
-                newDict[key] = value
-            return newDict
-        
-        d = self.t.loadAll()
-        d.addCallback(loaded)
-        return d
+        newDict = {}
+        yield self.waitUntilRunning()
+        valueDict = yield self.t.loadAll()
+        for name, value in valueDict.iteritems():
+            key = self.nameType(name)
+            newDict[key] = value
+        defer.returnValue(newDict)
     
     def update(self, name, value):
         """
         Updates the database entry for item I{name} = I{value}, returning a
         deferred that fires when the transaction is done.
         """
-        return self.write('update', name, value, niceness=NICENESS_WRITE)
+        return self.write('update', name, value)
     
     def insert(self, name, value):
         """
         Inserts a database entry for item I{name} = I{value}, returning a
         deferred that fires when the transaction is done.
         """
-        return self.write('insert', name, value, niceness=NICENESS_WRITE)
+        return self.write('insert', name, value)
     
     def delete(self, *names):
         """
@@ -316,24 +276,7 @@ class Items(object):
             code readability.
 
         """
-        def deleteDone(noneResult, d1):
-            dList = []
-            for name in names:
-                dList.append(search.drop(
-                    document=self.groupID, section=hash(name)))
-            d3 = defer.DeferredList(dList)
-            d3.addCallback(self.search.ready)
-            d1.callback(None)
-
-        kw = {'niceness':NICENESS_WRITE}
-        if self.search is None:
-            return self.t.delete(*names, **kw)
-        else:        
-            d1 = defer.Deferred()
-            self.search.busy()
-            d2 = self.t.delete(*names, **kw)
-            d2.addCallback(deleteDone, d1)
-            return d1
+        return self.t.delete(*names)
     
     def names(self):
         """

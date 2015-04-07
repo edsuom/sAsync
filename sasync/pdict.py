@@ -82,9 +82,9 @@ class PersistentDictBase(MutableMapping, object):
 
         @param ID: A hashable object that is used as my unique identifier.
         
-        @keyword search: Set C{True} if text indexing is to be updated when items
-          are added, updated, or deleted.
-
+        @keyword search: Set C{True} if text indexing is to be updated
+          when items are added, updated, or deleted.
+        
         """
         try:
             self.ID = hash(ID)
