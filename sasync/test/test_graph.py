@@ -102,7 +102,7 @@ class CommonTestsMixin(BaseMixin):
     def tearDown(self):
         return self.G.shutdown()
 
-    def testAddNodes(self):
+    def test_addNodes(self):
         def first(null):
             self.H, d = self.cloneGraph(self.G)
             return d
@@ -118,7 +118,7 @@ class CommonTestsMixin(BaseMixin):
         d.addCallback(second)
         return d
 
-    def testWaitForWrites(self):
+    def test_waitForWrites(self):
         edge = random.sample(xrange(100), 2)
         
         def first(null):
@@ -144,7 +144,7 @@ class TestGraphBasics(CommonTestsMixin, TestCase):
         self.G = graph.Graph('foo', URL, nodeType=int)
         return self.G.startup(startFresh=True)
 
-    def testAddEdges(self):
+    def test_addEdges(self):
         self.G.add_edge(1, 2)
         self.G.add_edge(2, 3)
         nodes = self.G.nodes()
@@ -158,7 +158,7 @@ class TestDiGraphBasics(CommonTestsMixin, TestCase):
         self.G = graph.DiGraph('bar', URL, nodeType=int)
         return self.G.startup(startFresh=True)
     
-    def testAddEdges(self):
+    def test_addEdges(self):
         self.G.add_edge(1, 2)
         self.G.add_edge(2, 3)
         nodes = self.G.nodes()
@@ -172,29 +172,25 @@ class TestGraphPersistence(BaseMixin, TestCase):
     Do pnetwork.Graph and pnetworkx.DiGraph act like NX.Graph and
     NX.DiGraph items, except for their special persistency features?
     """
-    def testPersists(self):
-        @defer.deferredGenerator
-        def run():
-            for G1, diGraph in self.graphGenerator('alpha'):
-                yield defer.waitForDeferred(G1.startup())
-                G1.add_edge(1, 2)
-                yield defer.waitForDeferred(G1.deferToWrites())
-                G2 = self.newGraph('alpha', diGraph=diGraph, startFresh=False)
-                yield defer.waitForDeferred(G2.startup())
-                self.failUnlessGraphsEqual(G1, G2)
-                yield defer.waitForDeferred(G1.shutdown())
-                yield defer.waitForDeferred(G2.shutdown())
-        return run()
+    @defer.inlineCallbacks
+    def test_persists(self):
+        for G1, diGraph in self.graphGenerator('alpha'):
+            yield G1.startup()
+            G1.add_edge(1, 2)
+            yield G1.deferToWrites()
+            G2 = self.newGraph('alpha', diGraph=diGraph, startFresh=False)
+            yield G2.startup()
+            self.failUnlessGraphsEqual(G1, G2)
+            yield G1.shutdown()
+            yield G2.shutdown()
 
-    def testDifferentAlistForDifferentNames(self):
-        @defer.deferredGenerator
-        def run():
-            for G1, diGraph in self.graphGenerator('charlie'):
-                yield defer.waitForDeferred(G1.startup())
-                G2 = self.newGraph('delta', diGraph=diGraph)
-                yield defer.waitForDeferred(G2.startup())
-                self.failIfEqual(id(G1.adj), id(G2.adj))
-                yield defer.waitForDeferred(G1.shutdown())
-                yield defer.waitForDeferred(G2.shutdown())
-        return run()
+    @defer.inlineCallbacks
+    def test_differentAlistForDifferentNames(self):
+        for G1, diGraph in self.graphGenerator('charlie'):
+            yield G1.startup()
+            G2 = self.newGraph('delta', diGraph=diGraph)
+            yield G2.startup()
+            self.failIfEqual(id(G1.adj), id(G2.adj))
+            yield G1.shutdown()
+            yield G2.shutdown()
 

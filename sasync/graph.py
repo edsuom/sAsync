@@ -62,9 +62,9 @@ L{networkx} code::
 
   ...
 
-When the startup deferred fires, the instantiated graph will have whatever node
-and edge values you set it to last time you instantiated it.
-
+When the startup deferred fires, the instantiated graph will have
+whatever node and edge values you set it to last time you instantiated
+it.
 """
 
 from twisted.internet import defer
@@ -88,7 +88,7 @@ class Persistent(object):
     instantiate them with different I{name} options.
     """
     @defer.inlineCallbacks
-    def startup(self, startFresh=False):
+    def startup(self, startFresh=None):
         """
         Starts up my persistence engine.
 
@@ -127,6 +127,8 @@ class Persistent(object):
             thisID = "%s-%d" % (self.name, self._uniqueCount)
             return hash(thisID)
 
+        if startFresh is None:
+            startFresh = getattr(self, 'startFresh', False)
         self._uniqueCount = 0
         self.kw['nameType'] = self.nodeType
         # Adjacency lists
@@ -180,6 +182,7 @@ class Graph(Persistent, NX.Graph):
     adjacencyLists = ('adj',)
     def __init__(self, name, url, **kw):
         self.nodeType = kw.pop('nodeType', str)
+        self.startFresh = kw.pop('startFresh', False)
         NX.Graph.__init__(self, name=name)
         self.url = url
         self.kw = kw
@@ -192,6 +195,7 @@ class DiGraph(Persistent, NX.DiGraph):
     adjacencyLists = ('adj', 'pred')
     def __init__(self, name, url, **kw):
         self.nodeType = kw.pop('nodeType', str)
+        self.startFresh = kw.pop('startFresh', False)
         NX.DiGraph.__init__(self, name=name)
         self.url = url
         self.kw = kw
@@ -204,6 +208,7 @@ class MultiGraph(Persistent, NX.MultiGraph):
     adjacencyLists = ('adj',)
     def __init__(self, name, url, **kw):
         self.nodeType = kw.pop('nodeType', str)
+        self.startFresh = kw.pop('startFresh', False)
         NX.MultiGraph.__init__(self, name=name)
         self.url = url
         self.kw = kw
@@ -216,6 +221,7 @@ class MultiDiGraph(Persistent, NX.MultiDiGraph):
     adjacencyLists = ('adj', 'pred')
     def __init__(self, name, url, **kw):
         self.nodeType = kw.pop('nodeType', str)
+        self.startFresh = kw.pop('startFresh', False)
         NX.MultiDiGraph.__init__(self, name=name)
         self.url = url
         self.kw = kw
