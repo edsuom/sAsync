@@ -50,23 +50,19 @@ class BaseMixin:
         return H, H.startup()
     
     def newGraph(self, name, diGraph=False, startFresh=False):
-        G = (
-            graph.Graph,
-            graph.DiGraph
-            )[diGraph](name, URL, startFresh=startFresh, nodeType=int)
-        return G
+        klass = graph.DiGraph if diGraph else graph.Graph
+        return klass(name, URL, startFresh=startFresh, nodeType=int)
 
     def graphGenerator(self, name, startFresh=True):
         """
-        Yields dicts containing a persistent (Di)Graph object under test. If
-        C{populated}, each dict contains a regular NX.Graph object with some
-        data. If C{clear}, the test (Di)Graph object is guaranteed to be empty,
-        and of course is not C{populated}.
-
+        Yields dicts containing a persistent (Di)Graph object under
+        test. If C{populated}, each dict contains a regular NX.Graph
+        object with some data. If C{clear}, the test (Di)Graph object
+        is guaranteed to be empty, and of course is not C{populated}.
         """
         for diGraph in (False, True):
             if VERBOSE:
-                graphType = ('Graph', 'DiGraph')[diGraph]
+                graphType = 'DiGraph' if diGraph else 'Graph'
                 print "\n\nTesting %s ..." % graphType
             G = self.newGraph(
                 name, diGraph=diGraph, startFresh=startFresh)
@@ -173,9 +169,8 @@ class TestDiGraphBasics(CommonTestsMixin, TestCase):
 
 class TestGraphPersistence(BaseMixin, TestCase):
     """
-    Do pnetwork.Graph and pnetworkx.DiGraph act like NX.Graph and NX.DiGraph
-    items, except for their special persistency features?
-
+    Do pnetwork.Graph and pnetworkx.DiGraph act like NX.Graph and
+    NX.DiGraph items, except for their special persistency features?
     """
     def testPersists(self):
         @defer.deferredGenerator

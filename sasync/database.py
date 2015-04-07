@@ -195,7 +195,8 @@ def transact(f):
                 self.lock.release()
         # If the result is a failure, raise its exception to trigger
         # the errback outside this function
-        if isinstance(result, list) and isinstance(result[0], Failure):
+        if isinstance(result, list) and \
+           len(result) == 1 and isinstance(result[0], Failure):
             result[0].raiseException()
         defer.returnValue(result)
 

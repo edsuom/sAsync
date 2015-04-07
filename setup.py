@@ -37,16 +37,14 @@ required = ['SQLAlchemy>=0.5', 'AsynQueue']
 
 
 ### Define setup options
-kw = {'version':'0.8',
+kw = {'version':'0.8.1',
       'license':'GPL',
       'platforms':'OS Independent',
 
-      'url':"http://edsuom.com/foss/%s/" % NAME,
+      'url':"http://foss.edsuom.com/%s/" % NAME,
       'author':'Edwin A. Suominen',
-      'author_email':'edsuom@yahoo.com',
       
       'maintainer':'Edwin A. Suominen',
-      'maintainer_email':'edsuom@yahoo.com',
       
       'install_requires':required,
       'packages':['sasync'],

@@ -41,34 +41,36 @@ class AsyncError(Exception):
 
 class PersistentDictBase(MutableMapping, object):
     """
-    I am a base class for a database-persistent dictionary-like object uniquely
-    identified by the hashable constructor argument I{ID}.
+    I am a base class for a database-persistent dictionary-like object
+    uniquely identified by the hashable constructor argument I{ID}.
 
-    Before you use any instance of me, you must specify the parameters for
-    creating an SQLAlchemy database engine. A single argument is used, which
-    specifies a connection to a database via an RFC-1738 url. In addition, the
-    following keyword options can be employed, which are listed in the API docs
-    for L{sasync} and L{sasync.database.AccessBroker}.
+    Before you use any instance of me, you must specify the parameters
+    for creating an SQLAlchemy database engine. A single argument is
+    used, which specifies a connection to a database via an RFC-1738
+    url. In addition, the following keyword options can be employed,
+    which are listed in the API docs for L{sasync} and
+    L{sasync.database.AccessBroker}.
 
     You can set an engine globally, for all instances of me, via the
-    L{sasync.engine} package-level function, or via the L{AccessBroker.engine}
-    class method. Alternatively, you can specify an engine for one particular
-    instance by supplying the parameters to my constructor.
+    L{sasync.engine} package-level function, or via the
+    L{AccessBroker.engine} class method. Alternatively, you can
+    specify an engine for one particular instance by supplying the
+    parameters to my constructor.
     
-    In my default mode of operation, both read and write item accesses occur
-    asynchronously and return deferreds. However, you can put me into B{load}
-    mode by calling my L{preload} method. At that point, all my items will be
-    accessed synchronously as with any other dictionary. No other deferreds
-    will be returned from any item access. Lazy writing will still be done, but
-    behind the scenes and with no API access to write completions.
+    In my default mode of operation, both read and write item accesses
+    occur asynchronously and return deferreds. However, you can put me
+    into B{load} mode by calling my L{preload} method. At that point,
+    all my items will be accessed synchronously as with any other
+    dictionary. No other deferreds will be returned from any item
+    access. Lazy writing will still be done, but behind the scenes and
+    with no API access to write completions.
 
-    B{IMPORTANT}: As with all sasync data store objects, make sure you call my
-    L{shutdown} method for an instance of me that you're done with before
-    allowing that instance to be deleted.
+    B{IMPORTANT}: As with all sasync data store objects, make sure you
+    call my L{shutdown} method for an instance of me that you're done
+    with before allowing that instance to be deleted.
 
     @ivar isPreloadMode: Boolean flag that indicates if I am operating in
         preload mode.
-
     """
     def __init__(self, ID, *url, **kw):
         """
@@ -101,6 +103,9 @@ class PersistentDictBase(MutableMapping, object):
             self.i = items.Items(self.ID)
         self.isPreloadMode = False
 
+    def waitUntilRunning(self):
+        return self.i.waitUntilRunning()
+        
     def preload(self):
         """
         This method preloads all my items from the database (which may take a
@@ -149,15 +154,14 @@ class PersistentDict(PersistentDictBase):
     I am a database-persistent dictionary-like object with memory caching of
     items and lazy writing.
     
-    Getting, setting, or deleting my items returns C{Deferred} objects of the
-    Twisted asynchronous framework that fire when the underlying database
-    accesses are completed. Returning a deferred value avoids forcing the
-    client code to block while the real value is being read from the
-    database.
+    Getting, setting, or deleting my items returns C{Deferred} objects
+    of the Twisted asynchronous framework that fire when the
+    underlying database accesses are completed. Returning a deferred
+    value avoids forcing the client code to block while the real value
+    is being read from the database.
 
-    @ivar data: The in-memory dictionary that each instance of me uses to cache
-      values for a given ID.
-        
+    @ivar data: The in-memory dictionary that each instance of me uses
+      to cache values for a given ID.
     """
     
     #--- Core dict operations -------------------------------------------------
@@ -275,10 +279,10 @@ class PersistentDict(PersistentDictBase):
         if self.isPreloadMode:
             return self.data.keys()
         if True in self.keyCache.values():
-            # The key cache is valid as long as it has entries (=True) that were
-            # retrieved from preloading or a previous call of this method. The
-            # __setitem__ method will add new keys to the cache, but that
-            # doesn't initialize it.
+            # The key cache is valid as long as it has entries (=True)
+            # that were retrieved from preloading or a previous call
+            # of this method. The __setitem__ method will add new keys
+            # to the cache, but that doesn't initialize it.
             keys = self.keyCache.keys()
             return defer.succeed(keys)
         # Empty or invalid key cache, load and cache a list of keys
