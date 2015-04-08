@@ -39,6 +39,7 @@ from testbase import deferToDelay, IterationConsumer, TestCase
 VERBOSE = False
 
 DELAY = 0.5
+#DB_URL = 'mysql://test@localhost/test'
 DB_URL = 'sqlite://'
 
 
@@ -67,22 +68,13 @@ class MyBroker(AccessBroker):
             for name, matchList in self.matches.iteritems():
                 print msgProto % (name, ",".join(matchList))
 
-    def setUpPeopleTable(self):
-        d = self.table(
-            'people',
-            Column('id', Integer, primary_key=True),
-            Column('name_first', String(32)),
-            Column('name_last', String(32)))
-        d.addCallbacks(self.insertions, self.oops)
-        return d
-
     @transact
     def tableDelete(self, name):
         table = getattr(self, name)
         table.delete().execute()
 
     @transact
-    def insertions(self, null):
+    def insertions(self):
         self.people.insert().execute(
             name_first='Theodore', name_last='Roosevelt')
         self.people.insert().execute(
@@ -94,6 +86,20 @@ class MyBroker(AccessBroker):
         self.people.insert().execute(
             name_first='Russ', name_last='Feingold')
 
+    @transact
+    def clearPeopleTable(self):
+        self.people.delete().execute()
+
+    @defer.inlineCallbacks
+    def setUpPeopleTable(self):
+        yield self.table(
+            'people',
+            Column('id', Integer, primary_key=True),
+            Column('name_first', String(32)),
+            Column('name_last', String(32)))
+        yield self.clearPeopleTable()
+        yield self.insertions().addErrback(self.oops)
+        
     @transact
     def matchingNames(self, letter):
         s = self.s
@@ -179,10 +185,25 @@ class AutoSetupBroker(AccessBroker):
             return row['name_last']
 
 
-class TestStartupAndShutdown(TestCase):
+class MyTestCase(TestCase):
     def setUp(self):
-        self.broker = AccessBroker(DB_URL)
+        self.broker = MyBroker(DB_URL)
         return self.broker.waitUntilRunning()
+
+    @defer.inlineCallbacks
+    def tearDown(self):
+        if getattr(getattr(self, 'broker', None), 'running', False):
+            if hasattr(self.broker, 'people'):
+                yield self.broker.clearPeopleTable()
+            yield self.broker.shutdown()
+    
+    def oops(self, failure):
+        self.msg("FAILURE: {}", failure.getTraceback())
+        return failure
+        
+            
+class TestStartupAndShutdown(MyTestCase):
+    verbose = False
     
     @defer.inlineCallbacks
     def test_multipleShutdowns(self):
@@ -232,15 +253,12 @@ class TestStartupAndShutdown(TestCase):
         return d
 
 
-class TestPrimitives(TestCase):
+class TestPrimitives(MyTestCase):
     verbose = False
     
     def setUp(self):
         self.broker = MyBroker(DB_URL)
         return self.broker.waitUntilRunning()
-
-    def tearDown(self):
-        return self.broker.shutdown()
 
     def test_errbackDFQ(self):
         def errback(failure):
@@ -365,26 +383,16 @@ class TestPrimitives(TestCase):
         return d
         
 
-class TestTransactions(TestCase):
+class TestTransactions(MyTestCase):
     verbose = False
     
     se = re.compile(r"sqlalchemy.+[eE]ngine")
     st = re.compile(r"sqlalchemy.+[tT]able")
-        
-    def setUp(self):
-        self.broker = MyBroker(DB_URL)
-        return self.broker.waitUntilRunning()
-
-    def tearDown(self):
-        return self.broker.shutdown()
-
-    def oops(self, failure):
-        self.msg("FAILURE: {}", failure.getTraceback())
-        return failure
 
     @defer.inlineCallbacks
     def createStuff(self):
         yield self.broker.setUpPeopleTable()
+        yield self.broker.clearPeopleTable()
         yield self.broker.table(
             'foobars',
             Column('id', Integer, primary_key=True),
@@ -519,7 +527,31 @@ class TestTransactions(TestCase):
         s = self.broker.select([cols.name_last, cols.name_first])
         yield self.broker.selectorator(s, consumer)
         self.assertEqual(len(consumer.data), 5)
-    
+
+    @defer.inlineCallbacks
+    def test_selectorator_twoConcurrently(self):
+        slowConsumer = IterationConsumer(self.verbose, writeTime=0.2)
+        yield self.broker.setUpPeopleTable()
+        cols = self.broker.people.c
+        # In this case, do NOT wait for the done-iterating deferred
+        # before doing another selectoration
+        s = self.broker.select([cols.name_last, cols.name_first])
+        d = self.broker.selectorator(s, slowConsumer)
+        # Add a new person while we are iterating the people from the
+        # last query
+        yield self.broker.addPerson("George", "Washington")
+        # Confirm we have one more person now
+        fastConsumer = IterationConsumer(self.verbose)
+        yield self.broker.everybody(consumer=fastConsumer)
+        self.assertEqual(len(fastConsumer.data), 6)
+        # Now wait for the slow consumer
+        yield d
+        # It still should only have gotten the smaller number of people
+        self.assertEqual(len(slowConsumer.data), 5)
+        # Wait for the slow consumer's last write delay, just to avoid
+        # unclean reactor messiness
+        yield slowConsumer.d
+        
     def test_transactMany(self):
         def run(null):
             dL = []
