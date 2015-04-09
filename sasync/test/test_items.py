@@ -2,38 +2,36 @@
 # An enhancement to the SQLAlchemy package that provides persistent
 # dictionaries, text indexing and searching, and an access broker for
 # conveniently managing database access, table setup, and
-# transactions. Everything can be run in an asynchronous fashion using the
-# Twisted framework and its deferred processing capabilities.
+# transactions. Everything can be run in an asynchronous fashion using
+# the Twisted framework and its deferred processing capabilities.
 #
-# Copyright (C) 2006 by Edwin A. Suominen, http://www.eepatents.com
+# Copyright (C) 2006, 2015 by Edwin A. Suominen, http://edsuom.com
 #
-# This program is free software; you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation; either version 2 of the License, or (at your option) any later
-# version.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 # 
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the file COPYING for more details.
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
 # 
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 """
 Unit tests for sasync.items.py.
 """
-import random
-from twisted.internet.reactor import callLater
-from twisted.internet.defer import \
-     Deferred, DeferredList, DeferredLock, succeed
-from twisted.trial.unittest import TestCase
+
+from twisted.internet.defer import Deferred, DeferredList
 
 from sqlalchemy import *
 
 from sasync.database import transact, AccessBroker
 import sasync.items as items
-import mock
+from testbase import MockThing, TestCase
+
 
 GROUP_ID = 123
 VERBOSE = False
@@ -48,7 +46,7 @@ class TestableItemsTransactor(items.Transactor):
         self.sasync_items.insert().execute(
             group_id=123, name='foo', value='OK')
         # Set up an experienced MockThing to have pickled
-        thing = mock.MockThing()
+        thing = MockThing()
         thing.method(1)
         self.sasync_items.insert().execute(
             group_id=123, name='bar', value=thing)
@@ -89,7 +87,7 @@ class TestItemsTransactor(ItemsMixin, TestCase):
                 self.failUnlessEqual(value, 'OK')
             else:
                 self.failUnless(
-                    isinstance(value, mock.MockThing),
+                    isinstance(value, MockThing),
                     "Item 'bar' is a '%s', not an instance of 'MockThing'" \
                     % value)
                 self.failUnless(
@@ -110,7 +108,7 @@ class TestItemsTransactor(ItemsMixin, TestCase):
                 self.failUnlessEqual(value, 'OK')
             else:
                 self.failUnless(
-                    isinstance(value, mock.MockThing),
+                    isinstance(value, MockThing),
                     "Item 'bar' is a '%s', not an instance of 'MockThing'" \
                     % value)
                 self.failUnless(
@@ -144,8 +142,8 @@ class TestItemsTransactor(ItemsMixin, TestCase):
         return self.i.t.loadAll().addCallback(loaded)
 
     def insertLots(self, callback):
-        noviceThing = mock.MockThing()
-        experiencedThing = mock.MockThing()
+        noviceThing = MockThing()
+        experiencedThing = MockThing()
         experiencedThing.method(0)
         self.whatToInsert = {
             'alpha':5937341,
@@ -156,7 +154,7 @@ class TestItemsTransactor(ItemsMixin, TestCase):
             'foxtrot':False,
             'golf':noviceThing,
             'hotel':experiencedThing,
-            'india':mock.MockThing
+            'india':MockThing
             }
         dList = []
         for name, value in self.whatToInsert.iteritems():
@@ -173,10 +171,9 @@ class TestItemsTransactor(ItemsMixin, TestCase):
                         and_(table.c.group_id == 123,
                              table.c.name == name)
                         ).execute().fetchone()['value']
-                    self.failUnlessEqual(
-                        value, inserted,
-                        "Inserted '%s:%s' but read '%s' back from the database!" % \
-                        (name, inserted, value))
+                    msg = "Inserted '{}:{}' ".format(name, inserted) +\
+                          "but read '{}' back from the database!".format(value)
+                    self.failUnlessEqual(value, inserted, msg)
                     for otherName, otherValue in items.iteritems():
                         if otherName != name and value == otherValue:
                             self.fail(

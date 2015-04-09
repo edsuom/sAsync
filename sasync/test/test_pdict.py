@@ -2,30 +2,29 @@
 # An enhancement to the SQLAlchemy package that provides persistent
 # dictionaries, text indexing and searching, and an access broker for
 # conveniently managing database access, table setup, and
-# transactions. Everything can be run in an asynchronous fashion using the
-# Twisted framework and its deferred processing capabilities.
+# transactions. Everything can be run in an asynchronous fashion using
+# the Twisted framework and its deferred processing capabilities.
 #
-# Copyright (C) 2006 by Edwin A. Suominen, http://www.eepatents.com
+# Copyright (C) 2006, 2015 by Edwin A. Suominen, http://edsuom.com
 #
-# This program is free software; you can redistribute it and/or modify it under
-# the terms of the GNU General Public License as published by the Free Software
-# Foundation; either version 2 of the License, or (at your option) any later
-# version.
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 # 
-# This program is distributed in the hope that it will be useful, but WITHOUT
-# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-# FOR A PARTICULAR PURPOSE.  See the file COPYING for more details.
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
 # 
-# You should have received a copy of the GNU General Public License along with
-# this program; if not, write to the Free Software Foundation, Inc., 51
-# Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 """
-Unit tests for sasync.pdict.py.
+Unit tests for sasync.pdict.py
 """
 
-import os
-from twisted.internet import defer, reactor
+from twisted.internet import defer
 
 import sqlalchemy as SA
 
@@ -33,7 +32,7 @@ from queue import Factory
 from pdict import PersistentDict
 from parray import PersistentArray
 
-from twisted.trial.unittest import TestCase
+from testbase import deferToDelay, TestCase
 
 
 ID = 341
@@ -107,19 +106,16 @@ class TestPlayNice(TestCase):
 
         def third(null):
             def wait():
-                d = defer.Deferred()
-                reactor.callLater(1.0, d.callback, None)
-                return d
+                return deferToDelay(1.0)
             
             def thisOneShutdown(null, objectName):
-                print "Done shutting down PDict '%s'" % objectName
+                self.msg("Done shutting down PDict '{}'", objectName)
 
             dList = []
             for objectName in ('x', 'y', 'z'):
                 d1 = getattr(self, objectName).shutdown()
-                if VERBOSE:
-                    print "\nAbout to shut down Pdict '%s'" % objectName
-                    d1.addCallback(thisOneShutdown, objectName)
+                self.msg("About to shut down Pdict '{}'", objectName)
+                d1.addCallback(thisOneShutdown, objectName)
                 d2 = wait()
                 dList.append(defer.DeferredList([d1,d2]))
             return defer.DeferredList(dList)
@@ -138,8 +134,7 @@ class TestPlayNice(TestCase):
             d1 = self.x.preload()
             d2 = self.y.preload()
             d3 = self.z.preload()
-            d4 = defer.Deferred()
-            reactor.callLater(0.5, d4.callback, None)
+            d4 = deferToDelay(0.5)
             return defer.DeferredList([d1,d2,d3,d4])
 
         def second(null):
@@ -158,19 +153,16 @@ class TestPlayNice(TestCase):
 
         def fourth(null):
             def wait():
-                d = defer.Deferred()
-                reactor.callLater(1.0, d.callback, None)
-                return d
+                return deferToDelay(1.0)
             
             def thisOneShutdown(null, objectName):
-                print "Done shutting down PDict '%s'" % objectName
+                self.msg("Done shutting down PDict '{}'", objectName)
 
             dList = []
             for objectName in ('x', 'y', 'z'):
                 d1 = getattr(self, objectName).shutdown()
-                if VERBOSE:
-                    print "\nAbout to shut down Pdict '%s'" % objectName
-                    d1.addCallback(thisOneShutdown, objectName)
+                self.msg("About to shut down Pdict '{}'", objectName)
+                d1.addCallback(thisOneShutdown, objectName)
                 d2 = wait()
                 dList.append(defer.DeferredList([d1,d2]))
             return defer.DeferredList(dList)
