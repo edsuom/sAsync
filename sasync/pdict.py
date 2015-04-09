@@ -25,18 +25,14 @@ Dictionary-like objects with behind-the-scenes database persistence
 
 """
 
-# Imports
 from collections import MutableMapping
+
 from twisted.internet import defer
+
 from asynqueue import DeferredTracker
 
 import items
-
-
-class AsyncError(Exception):
-    """
-    The requested action is incompatible with asynchronous operations.
-    """
+from errors import AsyncError
 
 
 class PersistentDictBase(MutableMapping, object):

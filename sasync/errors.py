@@ -25,6 +25,11 @@
 Errors relating to database access
 """
 
+class AsyncError(Exception):
+    """
+    The requested action is incompatible with asynchronous operations.
+    """
+
 class DatabaseError(Exception):
     """
     A problem occured when trying to access the database.

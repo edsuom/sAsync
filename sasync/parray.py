@@ -30,7 +30,6 @@ import sqlalchemy as SA
 
 from asynqueue import DeferredTracker
 from database import transact, AccessBroker
-import search
 
 
 NICENESS_WRITE = 6

@@ -30,7 +30,6 @@ from twisted.internet import defer
 import sqlalchemy as SA
 
 from database import transact, AccessBroker
-import search
 
 
 NICENESS_WRITE = 6
@@ -172,8 +171,6 @@ class Items(object):
     class method. Alternatively, you can specify an engine for one particular
     instance by supplying the parameters to my constructor.
     """
-    search = None
-    
     def __init__(self, ID, *url, **kw):
         """
         Instantiates me for the items of a particular group uniquely identified
@@ -195,9 +192,6 @@ class Items(object):
             self.groupID = hash(ID)
         except:
             raise TypeError("Item IDs must be hashable")
-        if kw.pop('search', False):
-            # No search object, worry about searching later
-            self.search = None
         self.nameType = kw.pop('nameType', str)
         if url:
             self.t = Transactor(self.groupID, url[0], **kw)
@@ -258,23 +252,6 @@ class Items(object):
         Deletes the database entries for the items having the supplied
         I{*names}, returning a deferred that fires when the transaction is
         done.
-
-        If we are updating the search index, there's a nuance to the
-        deferred processing. In that case, when the deletions are done, the
-        deferred is fired and processing separately proceeds with dropping
-        index entries for the deleted values. Here's how it works:
-
-            1. Create a clean deferred B{d1} to return to the caller, whose
-            callback(s) will be fired from the callback to the transaction's
-            own deferred B{d2}.
-
-            2. Start the delete transaction and assign the C{deleteDone}
-            function as the callback to its deferred B{d2}. Note that the
-            defer-to-thread transaction keeps a reference to the deferred
-            object it instantiates, so we don't have to do so for either B{d2}
-            or B{d3}. Those references are merely defined in the method for
-            code readability.
-
         """
         return self.t.delete(*names)
     
