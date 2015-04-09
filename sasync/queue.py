@@ -1,6 +1,6 @@
 # sAsync:
 # An enhancement to the SQLAlchemy package that provides persistent
-# dictionaries, text indexing and searching, and an access broker for
+# item-value stores, arrays, and dictionaries, and an access broker for
 # conveniently managing database access, table setup, and
 # transactions. Everything can be run in an asynchronous fashion using
 # the Twisted framework and its deferred processing capabilities.
