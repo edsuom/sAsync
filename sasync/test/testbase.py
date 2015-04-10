@@ -26,7 +26,6 @@ Mock objects and an improved TestCase for sAsync
 """
 
 import re, sys, os.path
-from contextlib import contextmanager
 
 from zope.interface import implements
 from twisted.internet import reactor, defer
@@ -50,19 +49,19 @@ class MsgBase(object):
     """
     A mixin for providing a convenient message method.
     """
-    @contextmanager
-    def verboseContext(self):
+    def isVerbose(self):
         if hasattr(self, 'verbose'):
-            verbose = self.verbose
-        elif 'VERBOSE' in globals():
-            verbose = VERBOSE
-        else:
-            verbose = False
-        if verbose:
-            yield
+            return self.verbose
+        if 'VERBOSE' in globals():
+            return VERBOSE
+        return False
     
+    def verboserator(self):
+        if self.isVerbose():
+            yield None
+
     def msg(self, proto, *args):
-        with self.verboseContext:
+        for null in self.verboserator():
             if not hasattr(self, 'msgAlready'):
                 proto = "\n" + proto
                 self.msgAlready = True
