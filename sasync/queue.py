@@ -63,7 +63,9 @@ class Factory(object):
         # Iterators are always returned as raw because ResultProxy
         # objects are iterators but sAsync is smarter at handling them
         # than AsynQueue.
-        q = asynqueue.ThreadQueue(raw=True)
+        q = asynqueue.ThreadQueue(
+            raw=True,
+            verbose=kw.pop('verbose', False), spew=kw.pop('spew', False))
         return q.call(getEngine).addCallback(gotEngine)
         
     @classmethod

@@ -77,13 +77,15 @@ def transact(f):
     @keyword ignore: Set this option to C{True} to have errors in the
       transaction function ignored and just do the rollback quietly.
 
-    @type ignore: Boolean option, default C{False}
-
     @keyword consumer: Set this to a consumer object (must implement
       the L{twisted.interfaces.IConsumer} interface) and the
       L{SA.ResultProxy} will write its rows to it in Twisted
       fashion. The returned deferred will fire when all rows have been
       written.
+
+    @keyword raw: Set C{True} to have the transaction result returned
+      in its original form even if it's a RowProxy or other iterator.
+    
     """
     @defer.inlineCallbacks
     def substituteFunction(self, *args, **kw):
@@ -143,8 +145,14 @@ def transact(f):
             # errback chain until we are ready.
             return [failureObj]
 
+        # The 'raw' keyword is also used by the queue/worker, but
+        # 'ignore' and 'consumer' are not.
+        raw = kw.get('raw', False)
         ignore = kw.pop('ignore', False)
         consumer = kw.pop('consumer', None)
+        if consumer and raw:
+            raise ValueError(
+                "Can't supply a consumer for a raw transaction result")
         if isNested():
             # The call and its result only get special treatment in
             # the outermost @transact function
@@ -165,9 +173,8 @@ def transact(f):
                     self.lock.release()
             result = yield self.q.call(
                 transaction, f, *args, **kw).addErrback(oops)
-            if getattr(result, 'returns_rows', False):
-                # A ResultsProxy gets special handling
-                result = yield self.handleResultsProxy(result, consumer)
+            if not raw:
+                result = yield self.handleResult(result, consumer)
             if self.singleton:
                 # If we can't handle multiple connections, we held
                 # onto the lock throughout all of this
@@ -192,8 +199,9 @@ class AccessBroker(object):
     Before you use any instance of me, you must specify the parameters
     for creating an SQLAlchemy database engine. A single argument is
     used, which specifies a connection to a database via an RFC-1738
-    url. In addition, the following keyword options can be employed,
-    which are listed below with their default values.
+    url. In addition, the 'verbose' keyword options can be employed to
+    spew out log messages about calls and errors. (Use that only for
+    debugging.)
 
     You can set an engine globally, for all instances of me via the
     L{sasync.engine} package-level function, or via my L{engine} class
@@ -238,7 +246,7 @@ class AccessBroker(object):
         def firstAsTransaction():
             with self.connection.begin():
                 self.first()
-        
+                
         @defer.inlineCallbacks
         def startup(null):
             # Queue with attached engine, possibly shared with other
@@ -248,7 +256,7 @@ class AccessBroker(object):
             self.connection = yield self.connect()
             # Pre-transaction startup, called in main loop after
             # connection made.
-            yield defer.maybeDeferred(self.startup)
+            yield defer.maybeDeferred(self.startup).addErrback(self.q.oops)
             # First transaction, called in thread
             yield self.q.deferToThread(firstAsTransaction)
             # Ready for regular transactions
@@ -384,9 +392,10 @@ class AccessBroker(object):
             self.lock.release()
             yield self.qFactory.kill(self.q)
 
-    def handleResultsProxy(self, rp, consumer=None, connection=None):
+    def handleResult(self, result, consumer=None, connection=None):
         """
-        Given a ResultsProxy and possibly an implementor of IConsumer,
+        Handles the result of a transaction or connection.execute. If it's
+        a ResultsProxy and possibly an implementor of IConsumer,
         returned a (deferred) instance of Deferator or couples your
         consumer to an IterationProducer.
         """
@@ -396,10 +405,9 @@ class AccessBroker(object):
         
         def pfReady(ok):
             if not ok:
-                # Prefetcherator wouldn't accept it (will this ever
-                # happen)?
-                return Failure(Exception(
-                    "Prefetcherator rejected results proxy!"))
+                # Prefetcherator wouldn't accept it. Must be an empty
+                # results set.
+                return []
             dr = iteration.Deferator(pf)
             if consumer:
                 # A consumer was supplied, so try to make an
@@ -408,9 +416,12 @@ class AccessBroker(object):
                 return ip.run().addCallback(lambda _: consumer)
             # No consumer supplied, just return the Deferator
             return dr
-        pf = iteration.Prefetcherator(repr(rp), closeConnection)
-        return pf.setup(
-            self.q.deferToThread, nextFromRP, rp).addCallback(pfReady)
+        if getattr(result, 'returns_rows', False):
+            # A ResultsProxy gets special handling
+            pf = iteration.Prefetcherator(repr(result), closeConnection)
+            return pf.setup(
+                self.q.deferToThread, nextFromRP, result).addCallback(pfReady)
+        return defer.succeed(result)
             
     def s(self, *args, **kw):
         """
@@ -453,7 +464,7 @@ class AccessBroker(object):
         Just returns an SQLAlchemy select object. You do everything else.
         """
         return SA.select(*args, **kw)
-            
+
     @contextmanager
     def selex(self, *args, **kw):
         """
@@ -516,9 +527,25 @@ class AccessBroker(object):
         # happening.
         connection = yield self.connect()
         rp = yield self.q.call(connection.execute, selectObj)
-        result = yield self.handleResultsProxy(rp, consumer, connection)
+        result = yield self.handleResult(rp, consumer, connection)
         defer.returnValue(result)
 
+    @transact
+    def execute(self, *args, **kw):
+        """
+        Does a connection.execute(*args, **kw) as a transaction, in my
+        thread with my current connection.
+        """
+        return self.connection.execute(*args, **kw)
+
+    def sql(self, sqlText, **kw):
+        """
+        Executes raw SQL as a transaction, in my thread with my current
+        connection, and with no special handling of the ResultProxy.
+        """
+        kw['raw'] = True
+        return self.execute(SA.text(sqlText), **kw)
+        
     def deferToQueue(self, func, *args, **kw):
         """
         Dispatches I{callable(*args, **kw)} as a task via the like-named

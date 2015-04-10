@@ -26,9 +26,11 @@ Mock objects and an improved TestCase for sAsync
 """
 
 import re, sys, os.path
+from contextlib import contextmanager
 
 from zope.interface import implements
 from twisted.internet import reactor, defer
+from twisted.python.failure import Failure
 from twisted.internet.interfaces import IConsumer
 from twisted.trial import unittest
 
@@ -48,7 +50,8 @@ class MsgBase(object):
     """
     A mixin for providing a convenient message method.
     """
-    def msg(self, proto, *args):
+    @contextmanager
+    def verboseContext(self):
         if hasattr(self, 'verbose'):
             verbose = self.verbose
         elif 'VERBOSE' in globals():
@@ -56,6 +59,10 @@ class MsgBase(object):
         else:
             verbose = False
         if verbose:
+            yield
+    
+    def msg(self, proto, *args):
+        with self.verboseContext:
             if not hasattr(self, 'msgAlready'):
                 proto = "\n" + proto
                 self.msgAlready = True
@@ -105,15 +112,14 @@ class MockWorker(MsgBase):
         f, args, kw = self.task.callTuple
         result = f(*args, **kw)
         self.ran.append(self.task)
-        if VERBOSE:
+        with self.verboseContext():
             ID = getattr(self, 'ID', 0)
-            print "Worker %d ran %s = %s" % (ID, str(self.task), result)
+            self.msg("Worker {} ran {} = {}", ID, str(self.task), result)
         self.task.d.callback(result)
 
     def stop(self):
         self.isShutdown = True
-        if VERBOSE:
-            print "Shutting down worker %s" % self
+        self.msg("Shutting down worker {}", self)
         d = getattr(getattr(self, 'task', None), 'd', None)
         if d is None or d.called:
             d_shutdown = defer.succeed(None)
@@ -232,6 +238,14 @@ class TestCase(MsgBase, unittest.TestCase):
     """
     Slightly improved TestCase
     """
+    def oops(self, failureObj, *metaArgs):
+        with self.verboseContext():
+            if not metaArgs:
+                metaArgs = (repr(self),)
+            text = info.Info.setCall(*metaArgs).aboutFailure(failureObj)
+            self.msg(text)
+        return failureObj
+    
     def doCleanups(self):
         if hasattr(self, 'msgAlready'):
             del self.msgAlready
@@ -295,10 +309,12 @@ class TestCase(MsgBase, unittest.TestCase):
             k0 = max([0, k-N_seg])
             k1 = min([k+N_seg, len(x)])
             return "{}-!{}!-{}".format(x[k0:k], x[k], x[k+1:k1])
-        
         for k, char in enumerate(a):
             if char != b[k]:
                 s1 = segment(a)
                 s2 = segment(b)
                 msg += "\nFrom #1: '{}'\nFrom #2: '{}'".format(s1, s2)
                 self.fail(msg)
+
+    def assertIsFailure(self, x):
+        self.assertIsInstance(x, Failure)

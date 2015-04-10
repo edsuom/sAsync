@@ -24,16 +24,13 @@
 Unit tests for sasync.database
 """
 
-import re, time
-from twisted.python.failure import Failure
-from twisted.internet import reactor, defer
+import re, time, logging
+from twisted.internet import defer
 
-from sqlalchemy import *
+from asynqueue import info, iteration
 
-from asynqueue import iteration
-
-from database import AccessBroker, transact
-from testbase import deferToDelay, IterationConsumer, TestCase
+from people import PeopleBroker
+from testbase import deferToDelay, TestCase
 
 
 VERBOSE = False
@@ -43,189 +40,63 @@ DELAY = 0.5
 DB_URL = 'sqlite://'
 
 
-class MyBroker(AccessBroker):
-    def __init__(self, url):
-        AccessBroker.__init__(self, url)
-        self.matches = {}
+class TestHandler(logging.Handler):
+    def __init__(self, verbose):
+        logging.Handler.__init__(self)
+        self.verbose = verbose
+        self.records = []
+        
+    def emit(self, record):
+        self.records.append(record)
+        if self.verbose:
+            print "LOGGED:", record.getMessage()
 
-    def oops(self, failure):
-        print "\FAILURE (MyBroker):", 
-        failure.printTraceback()
-        print "\n"
-        return failure
 
-    def fullName(self, row):
-        firstName = row[self.people.c.name_first].capitalize()
-        lastName = row[self.people.c.name_last].capitalize()
-        return "%s %s" % (firstName, lastName)
-
-    def showNames(self, *args):
-        if VERBOSE:
-            msgProto = "%20s : %s"
-            print ("\n\n" + msgProto) % \
-                  ("FULL NAME", "LETTERS IN BOTH FIRST & LAST NAME")
-            print '=' * 60
-            for name, matchList in self.matches.iteritems():
-                print msgProto % (name, ",".join(matchList))
-
-    @transact
-    def tableDelete(self, name):
-        table = getattr(self, name)
-        table.delete().execute()
-
-    @transact
-    def insertions(self):
-        self.people.insert().execute(
-            name_first='Theodore', name_last='Roosevelt')
-        self.people.insert().execute(
-            name_first='Franklin', name_last='Roosevelt')
-        self.people.insert().execute(
-            name_first='Martin', name_last='Luther')
-        self.people.insert().execute(
-            name_first='Ronald', name_last='Reagan')
-        self.people.insert().execute(
-            name_first='Russ', name_last='Feingold')
-
-    @transact
-    def clearPeopleTable(self):
-        self.people.delete().execute()
-
+class BrokerTestCase(TestCase):
     @defer.inlineCallbacks
-    def setUpPeopleTable(self):
-        yield self.table(
-            'people',
-            Column('id', Integer, primary_key=True),
-            Column('name_first', String(32)),
-            Column('name_last', String(32)))
-        yield self.clearPeopleTable()
-        yield self.insertions().addErrback(self.oops)
-        
-    @transact
-    def matchingNames(self, letter):
-        s = self.s
-        if not s('letterMatch'):
-            s([self.people],
-              and_(self.people.c.name_first.like(bindparam('first')),
-                  self.people.c.name_last.like(bindparam('last'))))
-        match = "%" + letter + "%"
-        names = [self.fullName(row)
-                 for row in s().execute(first=match, last=match).fetchall()]
-        for name in names:
-            self.matches.setdefault(name, [])
-            self.matches[name].append(letter)
-
-    @transact
-    def findLastName(self, lastName):
-        s = self.s
-        if not s('lastName'):
-            s([self.people],
-              self.people.c.name_last == bindparam('last'))
-        return self.fullName(s().execute(last=lastName).first())
-
-    @transact
-    def everybody(self):
-        rp = select(
-            [self.people.c.name_last, self.people.c.name_first]).execute()
-        # Iteration-ready; we return the ResultProxy, not a list of
-        # rows from rp.fetchall()
-        return rp
-
-    @transact
-    def addPerson(self, firstName, lastName):
-            self.people.insert().execute(
-                name_last=lastName, name_first=firstName)
-        
-    def addAndUseEntry(self):
-        def _getNewID(null):
-            rows = select(
-                [self.people.c.id],
-                self.people.c.name_last == 'McCain').execute().first()
-            return rows[0]
-        def _getFirstName(ID):
-            return self.people.select().execute(id=ID).first()
-        d = self.addPerson("John", "McCain")
-        d.addCallback(transact, _getNewID)
-        d.addCallback(transact, _getFirstName)
-        return d
-
-    @transact
-    def nestedTransaction(self, x):
-        x += 1
-        time.sleep(0.2)
-        return self.fakeTransaction(x)
-
-    @transact
-    def fakeTransaction(self, x):
-        x += 1
-        time.sleep(0.2)
-        return x
-
-    @transact
-    def erroneousTransaction(self):
-        time.sleep(0.1)
-        raise Exception("Error raised for testing")
-
-
-class AutoSetupBroker(AccessBroker):
-    def startup(self):
-        return self.table(
-            'people',
-            Column('id', Integer, primary_key=True),
-            Column('name_first', String(32)),
-            Column('name_last', String(32)))
-
-    def first(self):
-        self.people.insert().execute(
-            name_first='Firster', name_last='Firstman')
-
-    @transact
-    def transactionRequiringFirst(self):
-        row = self.people.select().execute(name_first='Firster').first()
-        if row:
-            return row['name_last']
-
-
-class MyTestCase(TestCase):
     def setUp(self):
-        self.broker = MyBroker(DB_URL)
-        return self.broker.waitUntilRunning()
-
+        verbose = False
+        with self.verboseContext():
+            verbose = True
+            self.handler = TestHandler(verbose)
+            logging.getLogger('asynqueue').addHandler(self.handler)
+        self.broker = PeopleBroker(DB_URL, verbose=verbose)
+        yield self.broker.waitUntilRunning()
+        
     @defer.inlineCallbacks
     def tearDown(self):
         if getattr(getattr(self, 'broker', None), 'running', False):
-            if hasattr(self.broker, 'people'):
-                yield self.broker.clearPeopleTable()
+            for tableName in ('people', 'foobars'):
+                if hasattr(self.broker, tableName):
+                    yield self.broker.sql("DROP TABLE {}".format(tableName))
             yield self.broker.shutdown()
-    
-    def oops(self, failure):
-        self.msg("FAILURE: {}", failure.getTraceback())
-        return failure
-        
+
             
-class TestStartupAndShutdown(MyTestCase):
-    verbose = False
-    
+class TestBasics(BrokerTestCase):
+    verbose = True
+
+    def _oneShutdown(self, null, broker):
+        self.msg("Done shutting down broker '{}'",  broker)
+
+    def test_barebones(self):
+        self.assertTrue(hasattr(self, 'broker'))
+        self.assertTrue(hasattr(self.broker, 'people'))
+        
     @defer.inlineCallbacks
     def test_multipleShutdowns(self):
         for k in xrange(10):
             yield self.broker.shutdown()
-            d = defer.Deferred()
-            reactor.callLater(0.02, d.callback, None)
-            yield d
-
+            yield deferToDelay(0.02)
+            
     def test_shutdownTwoBrokers(self):
-        brokerB = AccessBroker(DB_URL)
-
-        def thisOneShutdown(null, broker):
-            print "Done shutting down broker '%s'" % broker
+        brokerB = PeopleBroker(DB_URL)
 
         def shutEmDown(null):
             dList = []
             for broker in (self.broker, brokerB):
-                d = broker.shutdown()
-                if VERBOSE:
-                    d.addCallback(thisOneShutdown, broker)
-                dList.append(d)
+                dList.append(
+                    broker.shutdown().addCallback(
+                        self._oneShutdown, broker))
             return defer.DeferredList(dList)
 
         d = brokerB.startup()
@@ -233,58 +104,22 @@ class TestStartupAndShutdown(MyTestCase):
         return d
 
     def test_shutdownThreeBrokers(self):
-        brokerB = AccessBroker(DB_URL)
-        brokerC = AccessBroker(DB_URL)
-
-        def thisOneShutdown(null, broker):
-            print "Done shutting down broker '%s'" % broker
+        brokerB = PeopleBroker(DB_URL)
+        brokerC = PeopleBroker(DB_URL)
 
         def shutEmDown(null):
             dList = []
             for broker in (self.broker, brokerB, brokerC):
-                d = broker.shutdown()
-                if VERBOSE:
-                    d.addCallback(thisOneShutdown, broker)
-                dList.append(d)
+                dList.append(
+                    broker.shutdown().addCallback(
+                        self._oneShutdown, broker))
             return defer.DeferredList(dList)
 
         d = defer.DeferredList([brokerB.startup(), brokerC.startup()])
         d.addCallback(shutEmDown)
         return d
 
-
-class TestPrimitives(MyTestCase):
-    verbose = False
-    
-    def setUp(self):
-        self.broker = MyBroker(DB_URL)
-        return self.broker.waitUntilRunning()
-
-    def test_errbackDFQ(self):
-        def errback(failure):
-            self.failUnless(isinstance(failure, Failure))
-
-        d = self.broker.deferToQueue(lambda x: 1/0, 0)
-        d.addCallbacks(
-            lambda _: self.fail("Should have done the errback instead"),
-            errback)
-        return d
-
-    def test_errbackTransact(self):
-        def errback(failureObj):
-            self.failUnless(isinstance(failureObj, Failure))
-
-        d = self.broker.erroneousTransaction()
-        d.addCallbacks(
-            lambda _: self.fail("Should have done the errback instead"),
-            errback)
-        return d
-
     def test_connect(self):
-        mutable = []
-        def gotConnection(conn):
-            mutable.append(conn)
-
         def gotAll(null):
             prevItem = mutable.pop()
             while mutable:
@@ -293,156 +128,136 @@ class TestPrimitives(MyTestCase):
                 # one
                 self.failUnlessEqual(type(thisItem), type(prevItem))
                 prevItem = thisItem
-            
-        d1 = self.broker.connect().addCallback(gotConnection)
-        d2 = self.broker.connect().addCallback(gotConnection)
-        d3 = deferToDelay(DELAY)
-        d3.addCallback(lambda _: self.broker.connect())
-        d3.addCallback(gotConnection)
+
+        mutable = []
+        d1 = self.broker.connect().addCallback(mutable.append)
+        d2 = self.broker.connect().addCallback(mutable.append)
+        d3 = deferToDelay(DELAY).addCallback(
+            lambda _: self.broker.connect()).addCallback(mutable.append)
         return defer.DeferredList([d1, d2, d3]).addCallback(gotAll)
 
     @defer.inlineCallbacks
-    def test_connectShutdownConnectAgain(self):
+    def test_twoConnections(self):
         firstConnection = yield self.broker.connect()
         yield self.broker.shutdown()
-        self.broker = MyBroker(DB_URL)
+        self.broker = PeopleBroker(DB_URL)
         secondConnection = yield self.broker.connect()
-        self.failUnlessEqual(
-            type(firstConnection), type(secondConnection))
-
-    def test_table(self):
-        mutable = []
-        def getTable():
-            return self.broker.table(
-                'very_cool_table',
-                Column('id', Integer, primary_key=True),
-                Column('Whatever', String(32)))
-        def gotTable(table):
-            mutable.append(table)
-        def gotAll(null):
-            self.failUnlessEqual(len(mutable), 3)
-        d1 = getTable().addCallback(gotTable)
-        d2 = getTable().addCallback(gotTable)
-        d3 = deferToDelay(DELAY)
-        d3.addCallback(lambda _: getTable())
-        d3.addCallback(gotTable)
-        return defer.DeferredList([d1, d2, d3]).addCallback(gotAll)
-
-    def test_createTableTwice(self):
-        def create():
-            return self.broker.table(
-                'singleton',
-                Column('id', Integer, primary_key=True),
-                Column('foobar', String(32)))
-        return defer.DeferredList([create(), create()])
-
-    def test_createTableWithIndex(self):
-        def create():
-            return self.broker.table(
-                'table_indexed',
-                Column('id', Integer, primary_key=True),
-                Column('foo', String(32)),
-                Column('bar', String(64)),
-                index_foobar=['foo', 'bar']
-                )
-        d = create()
-        d.addCallback(lambda _: self.broker.tableDelete('table_indexed'))
-        return d
-
-    def test_createTableWithUnique(self):
-        def create():
-            return self.broker.table(
-                'table_unique',
-                Column('id', Integer, primary_key=True),
-                Column('foo', String(32)),
-                Column('bar', String(64)),
-                unique_foobar=['foo', 'bar']
-                )
-        d = create()
-        d.addCallback(lambda _: self.broker.tableDelete('table_unique'))
-        return d
+        self.failUnlessEqual(type(firstConnection), type(secondConnection))
 
     def test_sameUrlSameQueueNotStarted(self):
-        anotherBroker = MyBroker(DB_URL)
+        anotherBroker = PeopleBroker(DB_URL)
         self.failUnlessEqual(self.broker.q, anotherBroker.q)
         d1 = anotherBroker.shutdown()
         d2 = self.broker.shutdown()
         return defer.DeferredList([d1,d2])
 
+    @defer.inlineCallbacks
     def test_sameUrlSameQueueStarted(self):
-        def doRest(null):
-            anotherBroker = MyBroker(DB_URL)
-            self.failUnlessEqual(self.broker.q, anotherBroker.q)
-            d1 = anotherBroker.shutdown()
-            d2 = self.broker.shutdown()
-            return defer.DeferredList([d1,d2])
-        
-        d = defer.Deferred()
-        d.addCallback(doRest)
-        reactor.callLater(DELAY, d.callback, None)
-        return d
-        
+        yield deferToDelay(DELAY)
+        anotherBroker = PeopleBroker(DB_URL, verbose=True)
+        self.failUnlessEqual(self.broker.q, anotherBroker.q)
+        yield anotherBroker.shutdown()
 
-class TestTransactions(MyTestCase):
+    def test_deferToQueue_errback(self):
+        # TODO
+        return
+        d = self.broker.deferToQueue(lambda x: 1/0, 0)
+        d.addCallbacks(
+            lambda _: self.fail("Should have done the errback instead"),
+            self.assertIsFailure)
+        return d
+
+    def test_transact_errback(self):
+        # TODO
+        return
+        d = self.broker.erroneousTransaction()
+        d.addCallbacks(
+            lambda _: self.fail("Should have done the errback instead"),
+            self.assertIsFailure)
+        return d
+
+
+class TestTables(BrokerTestCase):
+    verbose = False
+
+    def _tableList(self):
+        def rpReady(rp):
+            return rp.fetchall()
+        self.broker.sql("SHOW TABLES").addCallback(rpReady)
+        
+    @defer.inlineCallbacks
+    def test_table(self):
+        yield self.broker.makeFoobarTable()
+        tables = yield self._tableList()
+        for tableName in ('people', 'foobars'):
+            self.assertIn(tableName, tables)
+
+    @defer.inlineCallbacks
+    def test_createTableWithIndex(self):
+        yield self.broker.table(
+            'table_indexed',
+            Column('id', Integer, primary_key=True),
+            Column('foo', String(32)),
+            Column('bar', String(64)),
+            index_foobar=['foo', 'bar'])
+        tables = yield self._tableList()
+        self.assertIn('table_indexed', tables)
+        yield self.broker.sql("DROP TABLE table_indexed")
+
+    @defer.inlineCallbacks
+    def test_createTableWithUnique(self):
+        yield self.broker.table(
+            'table_unique',
+            Column('id', Integer, primary_key=True),
+            Column('foo', String(32)),
+            Column('bar', String(64)),
+            unique_foobar=['foo', 'bar'])
+        tables = yield self._tableList()
+        self.assertIn('table_unique', tables)
+        yield self.broker.sql("DROP TABLE table_unique")
+
+    @defer.inlineCallbacks
+    def test_makeNewTable(self):
+        yield self.broker.makeFoobarTable().addErrback(self.oops)
+        table = self.broker.foobars
+        isType = str(type(table))
+        self.assertPattern(
+            r'sqlalchemy.+[tT]able',
+            "AccessBroker().foobars should be an sqlalchemy Table() "+\
+            "object, but is '{}'".format(isType))
+
+
+class TestTransactions(BrokerTestCase):
     verbose = False
     
     se = re.compile(r"sqlalchemy.+[eE]ngine")
     st = re.compile(r"sqlalchemy.+[tT]able")
 
-    @defer.inlineCallbacks
-    def createStuff(self):
-        yield self.broker.setUpPeopleTable()
-        yield self.broker.clearPeopleTable()
-        yield self.broker.table(
-            'foobars',
-            Column('id', Integer, primary_key=True),
-            Column('foobar', String(64)))
-
-    def test_getTable(self):
-        def run(null):
-            table = self.broker.foobars
-            isType = str(type(table))
-            self.failUnless(
-                self.st.search(isType),
-                ("AccessBroker().foobars should be an sqlalchemy Table() "+\
-                 "object, but is '%s'") % isType)
-        return self.createStuff().addCallbacks(run, self.oops)
-
     def test_selectOneAndTwoArgs(self):
+        def runInThread():
+            self.failUnlessEqual(s('thisSelect'), False)
+            s([self.broker.people], self.broker.people.c.id==1)
+            self.failUnlessEqual(s('thisSelect'), True)
+            self.failUnlessEqual(s('thatSelect'), False)
         s = self.broker.s
-        def run(null):
-            def next():
-                self.failUnlessEqual(s('thisSelect'), False)
-                s([self.broker.people], self.broker.people.c.id==1)
-                self.failUnlessEqual(s('thisSelect'), True)
-                self.failUnlessEqual(s('thatSelect'), False)
-            return self.broker.q.call(next)
-        return self.createStuff().addCallbacks(run, self.oops)
+        return self.broker.q.call(next).addErrback(self.oops)
 
+    @defer.inlineCallbacks
     def test_selectZeroArgs(self):
+        def runInThread():
+            s('roosevelts')
+            s([self.broker.people],
+              self.broker.people.c.name_last == 'Roosevelt')
+            return s().execute().fetchall()
         s = self.broker.s
-        def run(null):
-            def next():
-                s('roosevelts')
-                s([self.broker.people],
-                  self.broker.people.c.name_last == 'Roosevelt')
-                rows = s().execute().fetchall()
-                return rows
-            return self.broker.q.call(next)
-
-        def gotRows(rows):
-            nameList = [row[self.broker.people.c.name_first] for row in rows]
-            for lastName in ('Franklin', 'Theodore'):
-                self.failUnless(lastName in nameList)
-
-        d = self.createStuff()
-        d.addCallbacks(run, self.oops)
-        d.addCallback(gotRows)
-        return d
+        yield self.broker.q.call(runInThread)
+        rows = yield self.broker.q.call(runInThread).addErrback(self.oops)
+        nameList = [row[self.broker.people.c.name_first] for row in rows]
+        for lastName in ('Franklin', 'Theodore'):
+            self.failUnless(lastName in nameList)
 
     @defer.inlineCallbacks
     def test_iterate(self):
-        yield self.broker.setUpPeopleTable()
         dr = yield self.broker.everybody()
         self.assertIsInstance(dr, iteration.Deferator)
         self.msg("Deferator: {}", dr)
@@ -457,14 +272,12 @@ class TestTransactions(MyTestCase):
     @defer.inlineCallbacks
     def test_iterate_withConsumer(self):
         consumer = IterationConsumer(self.verbose)
-        yield self.broker.setUpPeopleTable()
         yield self.broker.everybody(consumer=consumer)
         self.assertEqual(len(consumer.data), 5)
         
     @defer.inlineCallbacks
     def test_iterate_nextWhileIterating(self):
         slowConsumer = IterationConsumer(self.verbose, writeTime=0.2)
-        yield self.broker.setUpPeopleTable()
         # In this case, do NOT wait for the done-iterating deferred
         # before doing another transaction
         d = self.broker.everybody(consumer=slowConsumer)
@@ -507,7 +320,6 @@ class TestTransactions(MyTestCase):
 
     @defer.inlineCallbacks        
     def test_selectorator(self):
-        yield self.broker.setUpPeopleTable()
         cols = self.broker.people.c
         s = self.broker.select([cols.name_last, cols.name_first])
         dr = yield self.broker.selectorator(s)
@@ -522,7 +334,6 @@ class TestTransactions(MyTestCase):
     @defer.inlineCallbacks
     def test_selectorator_withConsumer(self):
         consumer = IterationConsumer(self.verbose)
-        yield self.broker.setUpPeopleTable()
         cols = self.broker.people.c
         s = self.broker.select([cols.name_last, cols.name_first])
         yield self.broker.selectorator(s, consumer)
@@ -531,7 +342,6 @@ class TestTransactions(MyTestCase):
     @defer.inlineCallbacks
     def test_selectorator_twoConcurrently(self):
         slowConsumer = IterationConsumer(self.verbose, writeTime=0.2)
-        yield self.broker.setUpPeopleTable()
         cols = self.broker.people.c
         # In this case, do NOT wait for the done-iterating deferred
         # before doing another selectoration
@@ -565,13 +375,6 @@ class TestTransactions(MyTestCase):
         d = self.broker.fakeTransaction(1)
         d.addCallback(self.failUnlessEqual, 2)
         return d
-
-    @defer.inlineCallbacks
-    def test_firstTransaction(self):
-        broker = AutoSetupBroker(DB_URL)
-        yield broker.waitUntilRunning()
-        result = yield broker.transactionRequiringFirst()
-        self.failUnlessEqual(result, 'Firstman')
 
     def test_nestTransactions(self):
         d = self.broker.nestedTransaction(1)
