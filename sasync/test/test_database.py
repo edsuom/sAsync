@@ -24,13 +24,15 @@
 Unit tests for sasync.database
 """
 
-import re, time, logging
+import logging
 from twisted.internet import defer
+
+import sqlalchemy as SA
 
 from asynqueue import info, iteration
 
 from people import PeopleBroker
-from testbase import deferToDelay, TestCase
+from testbase import deferToDelay, IterationConsumer, TestCase
 
 
 VERBOSE = False
@@ -178,7 +180,7 @@ class TestBasics(BrokerTestCase):
 
 
 class TestTables(BrokerTestCase):
-    verbose = False
+    verbose = True
 
     def _tableList(self):
         def rpReady(rp):
@@ -196,9 +198,9 @@ class TestTables(BrokerTestCase):
     def test_createTableWithIndex(self):
         yield self.broker.table(
             'table_indexed',
-            Column('id', Integer, primary_key=True),
-            Column('foo', String(32)),
-            Column('bar', String(64)),
+            SA.Column('id', SA.Integer, primary_key=True),
+            SA.Column('foo', SA.String(32)),
+            SA.Column('bar', SA.String(64)),
             index_foobar=['foo', 'bar'])
         tables = yield self._tableList()
         self.assertIn('table_indexed', tables)
@@ -208,9 +210,9 @@ class TestTables(BrokerTestCase):
     def test_createTableWithUnique(self):
         yield self.broker.table(
             'table_unique',
-            Column('id', Integer, primary_key=True),
-            Column('foo', String(32)),
-            Column('bar', String(64)),
+            SA.Column('id', SA.Integer, primary_key=True),
+            SA.Column('foo', SA.String(32)),
+            SA.Column('bar', SA.String(64)),
             unique_foobar=['foo', 'bar'])
         tables = yield self._tableList()
         self.assertIn('table_unique', tables)
@@ -228,10 +230,7 @@ class TestTables(BrokerTestCase):
 
 
 class TestTransactions(BrokerTestCase):
-    verbose = False
-    
-    se = re.compile(r"sqlalchemy.+[eE]ngine")
-    st = re.compile(r"sqlalchemy.+[tT]able")
+    verbose = True
 
     def test_selectOneAndTwoArgs(self):
         def runInThread():
@@ -240,7 +239,7 @@ class TestTransactions(BrokerTestCase):
             self.failUnlessEqual(s('thisSelect'), True)
             self.failUnlessEqual(s('thatSelect'), False)
         s = self.broker.s
-        return self.broker.q.call(next).addErrback(self.oops)
+        return self.broker.q.call(runInThread).addErrback(self.oops)
 
     @defer.inlineCallbacks
     def test_selectZeroArgs(self):
