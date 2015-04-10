@@ -392,6 +392,7 @@ class AccessBroker(object):
             self.lock.release()
             yield self.qFactory.kill(self.q)
 
+    @defer.inlineCallbacks
     def handleResult(self, result, consumer=None, connection=None):
         """
         Handles the result of a transaction or connection.execute. If it's
@@ -399,29 +400,30 @@ class AccessBroker(object):
         returned a (deferred) instance of Deferator or couples your
         consumer to an IterationProducer.
         """
-        def closeConnection():
+        def close(null):
+            if callable(getattr(result, 'close', None)):
+                result.close()
             if connection:
                 connection.close()
-        
-        def pfReady(ok):
-            if not ok:
-                # Prefetcherator wouldn't accept it. Must be an empty
-                # results set.
-                return []
-            dr = iteration.Deferator(pf)
-            if consumer:
-                # A consumer was supplied, so try to make an
-                # IterationProducer couple to it
-                ip = iteration.IterationProducer(dr, consumer)
-                return ip.run().addCallback(lambda _: consumer)
-            # No consumer supplied, just return the Deferator
-            return dr
+            
         if getattr(result, 'returns_rows', False):
             # A ResultsProxy gets special handling
-            pf = iteration.Prefetcherator(repr(result), closeConnection)
-            return pf.setup(
-                self.q.deferToThread, nextFromRP, result).addCallback(pfReady)
-        return defer.succeed(result)
+            pf = iteration.Prefetcherator(repr(result))
+            ok = yield pf.setup(self.q.deferToThread, nextFromRP, result)
+            if ok:
+                dr = iteration.Deferator(pf)
+                dr.addCallback(close)
+                if consumer:
+                    # A consumer was supplied, so try to make an
+                    # IterationProducer couple to it.
+                    ip = iteration.IterationProducer(dr, consumer)
+                    result = yield ip.run()
+                # No consumer supplied, just "return" the Deferator
+                result = dr
+            else:
+                # Empty/invalid ResultsProxy, just "return" an empty list
+                result = []
+        defer.returnValue(result)
             
     def s(self, *args, **kw):
         """

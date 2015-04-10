@@ -53,12 +53,11 @@ class PeopleBroker(MsgBase, AccessBroker):
         ("Ronald",      "Reagan"),
         ("Russ",        "Feingold"))
     
-    def __init__(self, url, verbose=False):
+    def __init__(self, url, verbose=False, spew=False):
         self.matches = {}
-        with self.verboseContext():
-            verbose = True
-        self.verbose = verbose
-        AccessBroker.__init__(self, url, verbose=verbose)
+        if verbose:
+            self.verbose = True
+        AccessBroker.__init__(self, url, verbose=self.isVerbose(), spew=spew)
 
     def startup(self):
         return self.table(

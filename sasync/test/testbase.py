@@ -237,6 +237,10 @@ class TestCase(MsgBase, unittest.TestCase):
     """
     Slightly improved TestCase
     """
+    # Nothing should take longer than 10 seconds, and often problems
+    # aren't apparent until the timeout stops the test.
+    timeout = 10
+    
     def oops(self, failureObj, *metaArgs):
         with self.verboseContext():
             if not metaArgs:

@@ -55,14 +55,15 @@ class TestHandler(logging.Handler):
 
 
 class BrokerTestCase(TestCase):
+    spew = False
+    
     @defer.inlineCallbacks
     def setUp(self):
-        verbose = False
-        with self.verboseContext():
-            verbose = True
-            self.handler = TestHandler(verbose)
+        verbose = self.isVerbose()
+        if verbose:
+            self.handler = TestHandler(True)
             logging.getLogger('asynqueue').addHandler(self.handler)
-        self.broker = PeopleBroker(DB_URL, verbose=verbose)
+        self.broker = PeopleBroker(DB_URL, verbose=verbose, spew=self.spew)
         yield self.broker.waitUntilRunning()
         
     @defer.inlineCallbacks
@@ -231,6 +232,7 @@ class TestTables(BrokerTestCase):
 
 class TestTransactions(BrokerTestCase):
     verbose = True
+    spew = False
 
     def test_selectOneAndTwoArgs(self):
         def runInThread():
@@ -259,7 +261,6 @@ class TestTransactions(BrokerTestCase):
     def test_iterate(self):
         dr = yield self.broker.everybody()
         self.assertIsInstance(dr, iteration.Deferator)
-        self.msg("Deferator: {}", dr)
         rows = []
         for k, d in enumerate(dr):
             row = yield d
