@@ -386,9 +386,10 @@ class AccessBroker(object):
                 conn.close()
 
         if self.running:
-            yield self.lock.acquire()
-            yield self.q.call(closeConnection)
             self.running = False
+            yield self.lock.acquire()
+            if self.q.isRunning():
+                yield self.q.call(closeConnection)
             self.lock.release()
             yield self.qFactory.kill(self.q)
 

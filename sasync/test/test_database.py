@@ -47,13 +47,20 @@ DB_URL = 'sqlite://'
 
 class BrokerTestCase(TestCase):
     spew = False
-    
+
+    def brokerFactory(self, **kw):
+        if 'verbose' not in kw:
+            kw['verbose'] = self.isVerbose()
+        if 'spew' not in kw:
+            kw['spew'] = self.spew
+        return PeopleBroker(DB_URL, **kw)
+        
     @defer.inlineCallbacks
     def setUp(self):
+        print "SU", self.isVerbose(), self.spew
         self.handler = TestHandler(True)
         logging.getLogger('asynqueue').addHandler(self.handler)
-        self.broker = PeopleBroker(
-            DB_URL, verbose=self.isVerbose(), spew=self.spew)
+        self.broker = self.brokerFactory()
         yield self.broker.waitUntilRunning()
         
     @defer.inlineCallbacks
@@ -67,6 +74,7 @@ class BrokerTestCase(TestCase):
             
 class TestBasics(BrokerTestCase):
     verbose = True
+    spew = True
 
     def _oneShutdown(self, null, broker):
         self.msg("Done shutting down broker '{}'",  broker)
@@ -82,7 +90,7 @@ class TestBasics(BrokerTestCase):
             yield deferToDelay(0.02)
             
     def test_shutdownTwoBrokers(self):
-        brokerB = PeopleBroker(DB_URL)
+        brokerB = self.brokerFactory()
 
         def shutEmDown(null):
             dList = []
@@ -97,8 +105,8 @@ class TestBasics(BrokerTestCase):
         return d
 
     def test_shutdownThreeBrokers(self):
-        brokerB = PeopleBroker(DB_URL)
-        brokerC = PeopleBroker(DB_URL)
+        brokerB = self.brokerFactory()
+        brokerC = self.brokerFactory()
 
         def shutEmDown(null):
             dList = []
@@ -133,27 +141,23 @@ class TestBasics(BrokerTestCase):
     def test_twoConnections(self):
         firstConnection = yield self.broker.connect()
         yield self.broker.shutdown()
-        self.broker = PeopleBroker(DB_URL)
+        self.broker = self.brokerFactory()
         secondConnection = yield self.broker.connect()
         self.failUnlessEqual(type(firstConnection), type(secondConnection))
 
-    def test_sameUrlSameQueueNotStarted(self):
-        anotherBroker = PeopleBroker(DB_URL)
-        self.failUnlessEqual(self.broker.q, anotherBroker.q)
-        d1 = anotherBroker.shutdown()
-        d2 = self.broker.shutdown()
-        return defer.DeferredList([d1,d2])
-
     @defer.inlineCallbacks
-    def test_sameUrlSameQueueStarted(self):
-        yield deferToDelay(DELAY)
-        anotherBroker = PeopleBroker(DB_URL, verbose=True)
-        self.failUnlessEqual(self.broker.q, anotherBroker.q)
+    def test_sameUrlSameQueue(self):
+        anotherBroker = self.brokerFactory()
+        yield anotherBroker.waitUntilRunning()
+        self.assertEqual(self.broker.q, anotherBroker.q)
+        # The shutdown from one broker MUST be completed before any
+        # other is tried.
         yield anotherBroker.shutdown()
+        yield self.broker.shutdown()
 
     @defer.inlineCallbacks
     def test_deferToQueue_errback(self):
-        anotherBroker = PeopleBroker(DB_URL, returnFailure=True)
+        anotherBroker = self.brokerFactory(returnFailure=True)
         d = anotherBroker.deferToQueue(lambda x: 1/0, 0)
         d.addCallbacks(
             lambda _: self.fail("Should have done the errback instead"),
@@ -163,7 +167,7 @@ class TestBasics(BrokerTestCase):
 
     @defer.inlineCallbacks
     def test_transact_errback(self):
-        anotherBroker = PeopleBroker(DB_URL, returnFailure=True)
+        anotherBroker = self.brokerFactory(returnFailure=True)
         d = anotherBroker.erroneousTransaction()
         d.addCallbacks(
             lambda _: self.fail("Should have done the errback instead"),

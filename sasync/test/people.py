@@ -33,19 +33,14 @@ import sqlalchemy as SA
 from asynqueue import info, iteration
 
 from database import transact, AccessBroker
-from testbase import MsgBase
 
-
-VERBOSE = False
 
 DELAY = 0.5
 #DB_URL = 'mysql://test@localhost/test'
 DB_URL = 'sqlite://'
 
 
-class PeopleBroker(MsgBase, AccessBroker):
-    verbose = False
-    
+class PeopleBroker(AccessBroker):
     defaultRoster = (
         ("Theodore",    "Roosevelt"),
         ("Franklin",    "Roosevelt"),
@@ -53,14 +48,9 @@ class PeopleBroker(MsgBase, AccessBroker):
         ("Ronald",      "Reagan"),
         ("Russ",        "Feingold"))
     
-    def __init__(self, url, verbose=False, spew=False, returnFailure=None):
+    def __init__(self, url, **kw):
         self.matches = {}
-        if verbose:
-            self.verbose = True
-        AccessBroker.__init__(
-            self, url,
-            verbose=self.isVerbose(),
-            spew=spew, returnFailure=returnFailure)
+        AccessBroker.__init__(self, url, **kw)
 
     def startup(self):
         return self.table(
