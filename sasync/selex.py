@@ -24,6 +24,8 @@
 Asynchronous database transactions via SQLAlchemy.
 """
 
+from twisted.internet import defer
+
 import sqlalchemy as SA
 
 
@@ -37,8 +39,8 @@ class SelectAndResultHolder(object):
     Everything is cleaned up via my L{close} method after the "loop"
     ends.
     """
-    def __init__(self, conn, *args):
-        self.conn = conn
+    def __init__(self, broker, *args):
+        self.broker = broker
         if callable(args[0]):
             self._sObject = args[0](*args[1:])
         else:
@@ -67,13 +69,15 @@ class SelectAndResultHolder(object):
 
     def __call__(self, *args, **kw):
         """
-        Call my connection to execute the select object with any supplied
-        args and keywords. The ResultProxy is returned and also
-        replaces the select object. Thus, after this call, you can
-        access its attributes as if they were my own, if that turns you on.
+        Eexecutes the select object, with any supplied args and keywords,
+        in a transaction.
+
+        If you call this from within a transaction already, the
+        nesting will be dealt with appropriately and you will get an
+        immediate ResultProxy. Otherwise, you'll get a deferred that
+        fires with the result, with row iteration coolness.
         """
-        self._sObject = self.conn.execute(self._sObject, *args, **kw)
-        return self._sObject
+        return self.broker.execute(self._sObject, *args, **kw)
 
     def close(self):
         self._sObject.close()

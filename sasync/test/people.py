@@ -44,7 +44,7 @@ DB_URL = 'sqlite://'
 
 
 class PeopleBroker(MsgBase, AccessBroker):
-    verbose = True
+    verbose = False
     
     defaultRoster = (
         ("Theodore",    "Roosevelt"),
@@ -53,11 +53,14 @@ class PeopleBroker(MsgBase, AccessBroker):
         ("Ronald",      "Reagan"),
         ("Russ",        "Feingold"))
     
-    def __init__(self, url, verbose=False, spew=False):
+    def __init__(self, url, verbose=False, spew=False, returnFailure=None):
         self.matches = {}
         if verbose:
             self.verbose = True
-        AccessBroker.__init__(self, url, verbose=self.isVerbose(), spew=spew)
+        AccessBroker.__init__(
+            self, url,
+            verbose=self.isVerbose(),
+            spew=spew, returnFailure=returnFailure)
 
     def startup(self):
         return self.table(
@@ -80,6 +83,26 @@ class PeopleBroker(MsgBase, AccessBroker):
         # Iteration-ready; we return the ResultProxy, not a list of
         # rows from rp.fetchall()
         return rp
+
+    @transact
+    def matchingNames(self, letter):
+        def fullName(row):
+            firstName = row[self.people.c.name_first].capitalize()
+            lastName = row[self.people.c.name_last].capitalize()
+            return "%s %s" % (firstName, lastName)
+        
+        s = self.s
+        if not s('letterMatch'):
+            s([self.people],
+              and_(self.people.c.name_first.like(bindparam('first')),
+                  self.people.c.name_last.like(bindparam('last'))))
+        match = "%" + letter + "%"
+        rows = s().execute(first=match, last=match).fetchall()
+        names = [fullName(row) for row in rows]
+        print "MN", rows, names
+        for name in names:
+            self.matches.setdefault(name, [])
+            self.matches[name].append(letter)
         
     @transact
     def addPerson(self, firstName, lastName):

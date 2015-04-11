@@ -65,7 +65,9 @@ class Factory(object):
         # than AsynQueue.
         q = asynqueue.ThreadQueue(
             raw=True,
-            verbose=kw.pop('verbose', False), spew=kw.pop('spew', False))
+            verbose=kw.pop('verbose', False),
+            spew=kw.pop('spew', False),
+            returnFailure=kw.pop('returnFailure', False))
         return q.call(getEngine).addCallback(gotEngine)
         
     @classmethod

@@ -34,6 +34,8 @@ from asynqueue import info, iteration
 from people import PeopleBroker
 from testbase import deferToDelay, IterationConsumer, TestCase
 
+from database import transact
+
 
 VERBOSE = False
 
@@ -161,23 +163,25 @@ class TestBasics(BrokerTestCase):
         self.failUnlessEqual(self.broker.q, anotherBroker.q)
         yield anotherBroker.shutdown()
 
+    @defer.inlineCallbacks
     def test_deferToQueue_errback(self):
-        # TODO
-        return
-        d = self.broker.deferToQueue(lambda x: 1/0, 0)
+        anotherBroker = PeopleBroker(DB_URL, returnFailure=True)
+        d = anotherBroker.deferToQueue(lambda x: 1/0, 0)
         d.addCallbacks(
             lambda _: self.fail("Should have done the errback instead"),
             self.assertIsFailure)
-        return d
+        yield d
+        yield anotherBroker.shutdown()
 
+    @defer.inlineCallbacks
     def test_transact_errback(self):
-        # TODO
-        return
-        d = self.broker.erroneousTransaction()
+        anotherBroker = PeopleBroker(DB_URL, returnFailure=True)
+        d = anotherBroker.erroneousTransaction()
         d.addCallbacks(
             lambda _: self.fail("Should have done the errback instead"),
             self.assertIsFailure)
-        return d
+        yield d
+        yield anotherBroker.shutdown()
 
 
 class TestTables(BrokerTestCase):
@@ -232,7 +236,7 @@ class TestTables(BrokerTestCase):
 
 class TestTransactions(BrokerTestCase):
     verbose = True
-    spew = False
+    spew = True
 
     def test_selectOneAndTwoArgs(self):
         def runInThread():
@@ -295,17 +299,15 @@ class TestTransactions(BrokerTestCase):
         # Wait for the slow consumer's last write delay, just to avoid
         # unclean reactor messiness
         yield slowConsumer.d
-        
+
+    @defer.inlineCallbacks
     def test_selex_select(self):
-        def run(null):
-            def next():
-                cols = self.broker.people.c
-                with self.broker.selex(cols.name_first) as sh:
-                    sh.where(cols.name_last == 'Luther')
-                    row = sh().first()
-                self.assertEqual(row[0], 'Martin')
-            return self.broker.q.call(next)
-        return self.createStuff().addCallbacks(run, self.oops)
+        cols = self.broker.people.c
+        with self.broker.selex(cols.name_first) as sh:
+            sh.where(cols.name_last == 'Luther')
+        rp = yield sh(raw=True)
+        row = rp.first()
+        self.assertEqual(row[0], 'Martin')
 
     def test_selex_delete(self):
         def run(null):
@@ -361,15 +363,16 @@ class TestTransactions(BrokerTestCase):
         # Wait for the slow consumer's last write delay, just to avoid
         # unclean reactor messiness
         yield slowConsumer.d
-        
+
+    @defer.inlineCallbacks
     def test_transactMany(self):
-        def run(null):
-            dL = []
-            for letter in "abcdefghijklmnopqrstuvwxyz":
-                d = self.broker.matchingNames(letter)
-                dL.append(d)
-            return defer.DeferredList(dL).addCallback(self.broker.showNames)
-        return self.createStuff().addCallbacks(run, self.oops)
+        dL = []
+        for letter in "htudg":
+            d = self.broker.matchingNames(letter)
+            dL.append(d)
+        yield defer.DeferredList(dL)
+        print self.broker.matches
+        self.assertEqual(self.broker.matches['Theodore'], ['h', 'd'])
 
     def test_transactionAutoStartup(self):
         d = self.broker.fakeTransaction(1)

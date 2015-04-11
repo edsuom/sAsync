@@ -172,7 +172,7 @@ def transact(f):
                     # ResultProxy iteration.
                     self.lock.release()
             result = yield self.q.call(
-                transaction, f, *args, **kw).addErrback(oops)
+                transaction, f, *args, **kw)#.addErrback(oops)
             if not raw:
                 result = yield self.handleResult(result, consumer)
             if self.singleton:
@@ -181,9 +181,9 @@ def transact(f):
                 self.lock.release()
         # If the result is a failure, raise its exception to trigger
         # the errback outside this function
-        if isinstance(result, list) and \
-           len(result) == 1 and isinstance(result[0], Failure):
-            result[0].raiseException()
+        #if isinstance(result, list) and \
+        #   len(result) == 1 and isinstance(result[0], Failure):
+        #    result[0].raiseException()
         defer.returnValue(result)
 
     if f.func_name == 'first' and hasattr(f, 'im_self'):
@@ -486,15 +486,13 @@ class AccessBroker(object):
 
         with <me>.select(<table>.c.foo) as sh:
             sh.where(<table>.c.bar == "correct")
-            rows = sh().fetchall()
-        <proceed with rows...>
+        for dRow in sh():
+            row = yield dRow
+            ...
 
-        Call from inside a transaction.
-        
         """
-        sh = SelectAndResultHolder(self.connection, *args)
+        sh = SelectAndResultHolder(self, *args)
         yield sh
-        sh.close()
 
     @defer.inlineCallbacks
     def selectorator(self, selectObj, consumer=None):
