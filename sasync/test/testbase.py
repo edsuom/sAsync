@@ -25,7 +25,7 @@
 Mock objects and an improved TestCase for sAsync
 """
 
-import re, sys, os.path
+import re, sys, os.path, logging
 
 from zope.interface import implements
 from twisted.internet import reactor, defer
@@ -55,13 +55,9 @@ class MsgBase(object):
         if 'VERBOSE' in globals():
             return VERBOSE
         return False
-    
-    def verboserator(self):
-        if self.isVerbose():
-            yield None
 
     def msg(self, proto, *args):
-        for null in self.verboserator():
+        if self.isVerbose():
             if not hasattr(self, 'msgAlready'):
                 proto = "\n" + proto
                 self.msgAlready = True
@@ -71,6 +67,20 @@ class MsgBase(object):
             print proto.format(*args)
 
 
+class TestHandler(MsgBase, logging.Handler):
+    def __init__(self, verbose=False):
+        logging.Handler.__init__(self)
+        self.verbose = verbose
+        self.records = []
+        self.setFormatter(logging.Formatter(
+            '%(levelname)s: %(message)s'))
+        
+    def emit(self, record):
+        self.records.append(record)
+        # Log entry only shown during tests in verbose mode
+        self.msg(record.getMessage())
+
+            
 class MockTask(MsgBase):
     def __init__(self, f, args, kw, priority, series):
         self.ran = False

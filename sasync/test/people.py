@@ -94,12 +94,13 @@ class PeopleBroker(MsgBase, AccessBroker):
         s = self.s
         if not s('letterMatch'):
             s([self.people],
-              and_(self.people.c.name_first.like(bindparam('first')),
-                  self.people.c.name_last.like(bindparam('last'))))
+              SA.and_(
+                  self.people.c.name_first.like(SA.bindparam('first')),
+                  self.people.c.name_last.like(SA.bindparam('last'))))
         match = "%" + letter + "%"
         rows = s().execute(first=match, last=match).fetchall()
         names = [fullName(row) for row in rows]
-        print "MN", rows, names
+        print "MN", letter, match, names
         for name in names:
             self.matches.setdefault(name, [])
             self.matches[name].append(letter)

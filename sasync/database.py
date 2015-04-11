@@ -126,7 +126,7 @@ def transact(f):
                 trans.rollback()
                 if ignore:
                     return
-                return Failure(e)
+                raise e
             # We can commit and release the lock now
             trans.commit()
             return result

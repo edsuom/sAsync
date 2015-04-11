@@ -32,7 +32,7 @@ import sqlalchemy as SA
 from asynqueue import info, iteration
 
 from people import PeopleBroker
-from testbase import deferToDelay, IterationConsumer, TestCase
+from testbase import deferToDelay, TestHandler, IterationConsumer, TestCase
 
 from database import transact
 
@@ -44,28 +44,16 @@ DELAY = 0.5
 DB_URL = 'sqlite://'
 
 
-class TestHandler(logging.Handler):
-    def __init__(self, verbose):
-        logging.Handler.__init__(self)
-        self.verbose = verbose
-        self.records = []
-        
-    def emit(self, record):
-        self.records.append(record)
-        if self.verbose:
-            print "LOGGED:", record.getMessage()
-
 
 class BrokerTestCase(TestCase):
     spew = False
     
     @defer.inlineCallbacks
     def setUp(self):
-        verbose = self.isVerbose()
-        if verbose:
-            self.handler = TestHandler(True)
-            logging.getLogger('asynqueue').addHandler(self.handler)
-        self.broker = PeopleBroker(DB_URL, verbose=verbose, spew=self.spew)
+        self.handler = TestHandler(True)
+        logging.getLogger('asynqueue').addHandler(self.handler)
+        self.broker = PeopleBroker(
+            DB_URL, verbose=self.isVerbose(), spew=self.spew)
         yield self.broker.waitUntilRunning()
         
     @defer.inlineCallbacks
