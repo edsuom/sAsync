@@ -57,7 +57,6 @@ class BrokerTestCase(TestCase):
         
     @defer.inlineCallbacks
     def setUp(self):
-        print "SU", self.isVerbose(), self.spew
         self.handler = TestHandler(True)
         logging.getLogger('asynqueue').addHandler(self.handler)
         self.broker = self.brokerFactory()
@@ -74,7 +73,7 @@ class BrokerTestCase(TestCase):
             
 class TestBasics(BrokerTestCase):
     verbose = True
-    spew = True
+    spew = False
 
     def _oneShutdown(self, null, broker):
         self.msg("Done shutting down broker '{}'",  broker)
@@ -90,35 +89,15 @@ class TestBasics(BrokerTestCase):
             yield deferToDelay(0.02)
             
     def test_shutdownTwoBrokers(self):
-        brokerB = self.brokerFactory()
-
         def shutEmDown(null):
             dList = []
-            for broker in (self.broker, brokerB):
+            for broker in (self.broker, anotherBroker):
                 dList.append(
                     broker.shutdown().addCallback(
                         self._oneShutdown, broker))
             return defer.DeferredList(dList)
-
-        d = brokerB.startup()
-        d.addCallback(shutEmDown)
-        return d
-
-    def test_shutdownThreeBrokers(self):
-        brokerB = self.brokerFactory()
-        brokerC = self.brokerFactory()
-
-        def shutEmDown(null):
-            dList = []
-            for broker in (self.broker, brokerB, brokerC):
-                dList.append(
-                    broker.shutdown().addCallback(
-                        self._oneShutdown, broker))
-            return defer.DeferredList(dList)
-
-        d = defer.DeferredList([brokerB.startup(), brokerC.startup()])
-        d.addCallback(shutEmDown)
-        return d
+        anotherBroker = self.brokerFactory()
+        return anotherBroker.waitUntilRunning().addCallback(shutEmDown)
 
     def test_connect(self):
         def gotAll(null):
@@ -180,9 +159,31 @@ class TestTables(BrokerTestCase):
     verbose = True
 
     def _tableList(self):
-        def rpReady(rp):
-            return rp.fetchall()
-        self.broker.sql("SHOW TABLES").addCallback(rpReady)
+        """
+        Adapted from
+        https://www.mail-archive.com/sqlalchemy@googlegroups.com/msg00462.html
+        """
+        eng = self.broker.q.engine
+        if eng.name == 'sqlite':
+            sql = """
+            SELECT name FROM sqlite_master
+            WHERE type='table'
+            ORDER BY name;"""
+        elif eng.name == 'postgres':
+            sql = """
+            SELECT c.relname as name,
+              n.nspname as schema,c.relkind,
+              u.usename as owner
+            FROM pg_catalog.pg_class c
+              LEFT JOIN pg_catalog.pg_user u ON u.usesysid = c.relowner
+              LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind IN ('r') AND pg_catalog.pg_table_is_visible(c.oid)
+            ORDER BY 1,2;
+            """
+        elif eng.name == 'mysql':
+            sql = "SHOW TABLES"
+        print "TL", sql
+        self.broker.sql(sql)
         
     @defer.inlineCallbacks
     def test_table(self):
@@ -301,16 +302,14 @@ class TestTransactions(BrokerTestCase):
         row = rp.first()
         self.assertEqual(row[0], 'Martin')
 
+    @defer.inlineCallbacks
     def test_selex_delete(self):
-        def run(null):
-            def next():
-                table = self.broker.people
-                with self.broker.selex(table.delete) as sh:
-                    sh.where(table.c.name_last == 'Luther')
-                    N = sh().rowcount
-                self.assertGreater(N, 0)
-            return self.broker.q.call(next)
-        return self.createStuff().addCallbacks(run, self.oops)
+        table = self.broker.people
+        with self.broker.selex(table.delete) as sh:
+            sh.where(table.c.name_last == 'Luther')
+        rp = yield sh(raw=True)
+        N = rp.rowcount
+        self.assertGreater(N, 0)
 
     @defer.inlineCallbacks        
     def test_selectorator(self):

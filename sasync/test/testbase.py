@@ -67,9 +67,9 @@ class MsgBase(object):
             print proto.format(*args)
 
 
-class TestHandler(MsgBase, logging.Handler):
+class TestHandler(MsgBase, logging.StreamHandler):
     def __init__(self, verbose=False):
-        logging.Handler.__init__(self)
+        logging.StreamHandler.__init__(self)
         self.verbose = verbose
         self.records = []
         self.setFormatter(logging.Formatter(
@@ -77,8 +77,8 @@ class TestHandler(MsgBase, logging.Handler):
         
     def emit(self, record):
         self.records.append(record)
-        # Log entry only shown during tests in verbose mode
-        self.msg(record.getMessage())
+        if self.verbose:
+            return logging.StreamHandler.emit(self, record)
 
             
 class MockTask(MsgBase):

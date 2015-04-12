@@ -85,7 +85,6 @@ def transact(f):
 
     @keyword raw: Set C{True} to have the transaction result returned
       in its original form even if it's a RowProxy or other iterator.
-    
     """
     @defer.inlineCallbacks
     def substituteFunction(self, *args, **kw):
@@ -146,8 +145,9 @@ def transact(f):
             return [failureObj]
 
         # The 'raw' keyword is also used by the queue/worker, but
-        # 'ignore' and 'consumer' are not.
+        # 'asList', 'ignore', and 'consumer' are not.
         raw = kw.get('raw', False)
+        asList = kw.pop('asList', False)
         ignore = kw.pop('ignore', False)
         consumer = kw.pop('consumer', None)
         if consumer and raw:
@@ -172,21 +172,26 @@ def transact(f):
                     # ResultProxy iteration.
                     self.lock.release()
             result = yield self.q.call(
-                transaction, f, *args, **kw)#.addErrback(oops)
+                transaction, f, *args, **kw).addErrback(oops)
             if not raw:
-                result = yield self.handleResult(result, consumer)
+                result = yield self.handleResult(result, consumer, asList)
             if self.singleton:
                 # If we can't handle multiple connections, we held
                 # onto the lock throughout all of this
                 self.lock.release()
         # If the result is a failure, raise its exception to trigger
-        # the errback outside this function
-        #if isinstance(result, list) and \
-        #   len(result) == 1 and isinstance(result[0], Failure):
-        #    result[0].raiseException()
+        # the errback outside this function. Very weird, I
+        # know. Basically, there must be an exception IN this function
+        # to trigger the errback OUTSIDE of it. Just returning a
+        # Failure doesn't seem to work.
+        if isinstance(result, list):
+            if len(result) == 1 and isinstance(result[0], Failure):
+                result[0].raiseException()
         defer.returnValue(result)
 
-    if f.func_name == 'first' and hasattr(f, 'im_self'):
+    # We need to ignore any transact decorator on an AccessBroker's
+    # 'first' method, because it can't wait for the lock
+    if f.func_name == 'first':
         return f
     substituteFunction.func_name = f.func_name
     return substituteFunction
@@ -244,6 +249,9 @@ class AccessBroker(object):
         an SQLAlchemy engine object that serves this instance only.
         """
         def firstAsTransaction():
+            # Need to call the first transaction here rather than via
+            # a regular 'transact' substitute call to avoid competing
+            # for the lock
             with self.connection.begin():
                 self.first()
                 
@@ -256,7 +264,7 @@ class AccessBroker(object):
             self.connection = yield self.connect()
             # Pre-transaction startup, called in main loop after
             # connection made.
-            yield defer.maybeDeferred(self.startup).addErrback(self.q.oops)
+            yield defer.maybeDeferred(self.startup)
             # First transaction, called in thread
             yield self.q.deferToThread(firstAsTransaction)
             # Ready for regular transactions
@@ -387,14 +395,18 @@ class AccessBroker(object):
 
         if self.running:
             self.running = False
-            yield self.lock.acquire()
             if self.q.isRunning():
-                yield self.q.call(closeConnection)
-            self.lock.release()
+                with self.lock.context() as d:
+                    yield d
+                    # Calling this via the queue is a problem if the
+                    # queue is shared and has been shut down. But
+                    # calling it in the main thread seems to work
+                    closeConnection()
+                    # yield self.q.call(closeConnection)
             yield self.qFactory.kill(self.q)
 
     @defer.inlineCallbacks
-    def handleResult(self, result, consumer=None, connection=None):
+    def handleResult(self, result, consumer=None, conn=None, asList=False):
         """
         Handles the result of a transaction or connection.execute. If it's
         a ResultsProxy and possibly an implementor of IConsumer,
@@ -404,26 +416,31 @@ class AccessBroker(object):
         def close(null):
             if callable(getattr(result, 'close', None)):
                 result.close()
-            if connection:
-                connection.close()
+            if conn:
+                conn.close()
             
         if getattr(result, 'returns_rows', False):
             # A ResultsProxy gets special handling
-            pf = iteration.Prefetcherator(repr(result))
-            ok = yield pf.setup(self.q.deferToThread, nextFromRP, result)
-            if ok:
-                dr = iteration.Deferator(pf)
-                dr.addCallback(close)
-                if consumer:
-                    # A consumer was supplied, so try to make an
-                    # IterationProducer couple to it.
-                    ip = iteration.IterationProducer(dr, consumer)
-                    result = yield ip.run()
-                # No consumer supplied, just "return" the Deferator
-                result = dr
+            if asList:
+                # ...except with asList, when all its rows are fetched
+                # in my thread and simply returned as a list
+                result = yield self.q.deferToThread(result.fetchall)
             else:
-                # Empty/invalid ResultsProxy, just "return" an empty list
-                result = []
+                pf = iteration.Prefetcherator(repr(result))
+                ok = yield pf.setup(self.q.deferToThread, nextFromRP, result)
+                if ok:
+                    dr = iteration.Deferator(pf)
+                    dr.addCallback(close)
+                    if consumer:
+                        # A consumer was supplied, so try to make an
+                        # IterationProducer couple to it.
+                        ip = iteration.IterationProducer(dr, consumer)
+                        result = yield ip.run()
+                    # No consumer supplied, just "return" the Deferator
+                    result = dr
+                else:
+                    # Empty/invalid ResultsProxy, just "return" an empty list
+                    result = []
         defer.returnValue(result)
             
     def s(self, *args, **kw):
@@ -535,16 +552,17 @@ class AccessBroker(object):
     def execute(self, *args, **kw):
         """
         Does a connection.execute(*args, **kw) as a transaction, in my
-        thread with my current connection.
+        thread with my current connection, with any rows of the result
+        returned as a list.
         """
+        kw['asList'] = True
         return self.connection.execute(*args, **kw)
 
     def sql(self, sqlText, **kw):
         """
         Executes raw SQL as a transaction, in my thread with my current
-        connection, and with no special handling of the ResultProxy.
+        connection, with all the usual handling of the ResultProxy.
         """
-        kw['raw'] = True
         return self.execute(SA.text(sqlText), **kw)
         
     def deferToQueue(self, func, *args, **kw):
