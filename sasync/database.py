@@ -418,7 +418,7 @@ class AccessBroker(object):
                 result.close()
             if conn:
                 conn.close()
-            
+
         if getattr(result, 'returns_rows', False):
             # A ResultsProxy gets special handling
             if asList:
@@ -555,14 +555,15 @@ class AccessBroker(object):
         thread with my current connection, with any rows of the result
         returned as a list.
         """
-        kw['asList'] = True
         return self.connection.execute(*args, **kw)
 
+    @asynqueue.showResult
     def sql(self, sqlText, **kw):
         """
         Executes raw SQL as a transaction, in my thread with my current
         connection, with all the usual handling of the ResultProxy.
         """
+        kw['asList'] = True
         return self.execute(SA.text(sqlText), **kw)
         
     def deferToQueue(self, func, *args, **kw):

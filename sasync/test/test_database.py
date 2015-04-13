@@ -40,8 +40,8 @@ from database import transact
 VERBOSE = False
 
 DELAY = 0.5
-#DB_URL = 'mysql://test@localhost/test'
-DB_URL = 'sqlite://'
+DB_URL = 'mysql://test@localhost/test'
+#DB_URL = 'sqlite://'
 
 
 
@@ -157,6 +157,7 @@ class TestBasics(BrokerTestCase):
 
 class TestTables(BrokerTestCase):
     verbose = True
+    spew = True
 
     def _tableList(self):
         """
@@ -182,7 +183,6 @@ class TestTables(BrokerTestCase):
             """
         elif eng.name == 'mysql':
             sql = "SHOW TABLES"
-        print "TL", sql
         self.broker.sql(sql)
         
     @defer.inlineCallbacks
