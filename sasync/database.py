@@ -174,7 +174,8 @@ def transact(f):
             result = yield self.q.call(
                 transaction, f, *args, **kw).addErrback(oops)
             if not raw:
-                result = yield self.handleResult(result, consumer, asList)
+                result = yield self.handleResult(
+                    result, consumer=consumer, asList=asList)
             if self.singleton:
                 # If we can't handle multiple connections, we held
                 # onto the lock throughout all of this
@@ -412,6 +413,11 @@ class AccessBroker(object):
         a ResultsProxy and possibly an implementor of IConsumer,
         returned a (deferred) instance of Deferator or couples your
         consumer to an IterationProducer.
+
+        You can supply a connection to be closed after iterations are
+        done with the keyword 'conn'. With the keyword 'asList', you
+        can force the rows of a ResultProxy to be fetched (in my
+        thread) and returned as a (deferred) list of rows.
         """
         def close(null):
             if callable(getattr(result, 'close', None)):
@@ -435,9 +441,17 @@ class AccessBroker(object):
                         # A consumer was supplied, so try to make an
                         # IterationProducer couple to it.
                         ip = iteration.IterationProducer(dr, consumer)
-                        result = yield ip.run()
-                    # No consumer supplied, just "return" the Deferator
-                    result = dr
+                        # We "wait" here for the iteration/production
+                        # to finish. What actually happens is that the
+                        # caller receives a deferred that fires when
+                        # iteration/production is done. However, the
+                        # consumer gets the iterations in the
+                        # meantime.
+                        yield ip.run()
+                        result = consumer
+                    else:
+                        # No consumer supplied, just "return" the Deferator
+                        result = dr
                 else:
                     # Empty/invalid ResultsProxy, just "return" an empty list
                     result = []
@@ -482,6 +496,8 @@ class AccessBroker(object):
     def select(self, *args, **kw):
         """
         Just returns an SQLAlchemy select object. You do everything else.
+
+        This is an immediate result, not a deferred.
         """
         return SA.select(*args, **kw)
 
@@ -513,7 +529,7 @@ class AccessBroker(object):
         yield sh
 
     @defer.inlineCallbacks
-    def selectorator(self, selectObj, consumer=None):
+    def selectorator(self, selectObj, consumer=None, de=None):
         """
         When called with a select object that results in an iterable
         ResultProxy when executed, returns a deferred that fires with
@@ -525,6 +541,11 @@ class AccessBroker(object):
         run it. The returned deferred will fire (with a reference to
         your consumer) when the iterations are done, but you don't
         need to wait for that before doing another transaction.
+
+        If you supply a deferred via the 'de' keyword, it will be
+        fired (unless already fired for some reason) with C{None} when
+        the select object has been executed, but before iterations
+        have begun.
         
         Call directly, *not* from inside a transaction.
 
@@ -537,7 +558,6 @@ class AccessBroker(object):
         <do other stuff>
         consumer = yield d
         consumer.revealMagnificentSummary()
-        
         """
         yield self.waitUntilRunning()
         # A new connection just for this iteration, so that other
@@ -545,7 +565,10 @@ class AccessBroker(object):
         # happening.
         connection = yield self.connect()
         rp = yield self.q.call(connection.execute, selectObj)
-        result = yield self.handleResult(rp, consumer, connection)
+        if isinstance(de, defer.Deferred) and not de.called:
+            de.callback(None)
+        result = yield self.handleResult(
+            rp, consumer=consumer, conn=connection)
         defer.returnValue(result)
 
     @transact
@@ -557,7 +580,6 @@ class AccessBroker(object):
         """
         return self.connection.execute(*args, **kw)
 
-    @asynqueue.showResult
     def sql(self, sqlText, **kw):
         """
         Executes raw SQL as a transaction, in my thread with my current

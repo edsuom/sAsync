@@ -44,8 +44,15 @@ DB_URL = 'mysql://test@localhost/test'
 #DB_URL = 'sqlite://'
 
 
+class FakeConnection:
+    def __init__(self):
+        self.wasClosed = False
+    def close(self):
+        self.wasClosed = True
+
 
 class BrokerTestCase(TestCase):
+    verbose = False
     spew = False
 
     def brokerFactory(self, **kw):
@@ -54,10 +61,10 @@ class BrokerTestCase(TestCase):
         if 'spew' not in kw:
             kw['spew'] = self.spew
         return PeopleBroker(DB_URL, **kw)
-        
+    
     @defer.inlineCallbacks
     def setUp(self):
-        self.handler = TestHandler(True)
+        self.handler = TestHandler(self.isVerbose())
         logging.getLogger('asynqueue').addHandler(self.handler)
         self.broker = self.brokerFactory()
         yield self.broker.waitUntilRunning()
@@ -72,7 +79,7 @@ class BrokerTestCase(TestCase):
 
             
 class TestBasics(BrokerTestCase):
-    verbose = True
+    verbose = False
     spew = False
 
     def _oneShutdown(self, null, broker):
@@ -154,16 +161,74 @@ class TestBasics(BrokerTestCase):
         yield d
         yield anotherBroker.shutdown()
 
+    @defer.inlineCallbacks
+    def test_handleResult_asList(self):
+        def getResultToHandle():
+            col = self.broker.people.c
+            s = SA.select([col.name_first, col.name_last])
+            return s.execute()
+        rp = yield self.broker.deferToQueue(getResultToHandle)
+        rowList = yield self.broker.handleResult(rp, asList=True)
+        self.assertEqual(len(rowList), 5)
+        for row in rowList:
+            self.assertIn(row, self.broker.defaultRoster)
+        
+    @defer.inlineCallbacks
+    def test_handleResult_asDeferator(self):
+        def getResultToHandle():
+            col = self.broker.people.c
+            s = SA.select([col.name_first, col.name_last])
+            return s.execute()
+        fc = FakeConnection()
+        rp = yield self.broker.deferToQueue(getResultToHandle)
+        dr = yield self.broker.handleResult(rp, conn=fc)
+        for k, d in enumerate(dr):
+            row = yield d
+            self.assertIn(row, self.broker.defaultRoster)
+        self.assertEqual(k, 4)
+        self.assertTrue(fc.wasClosed)
+
+    @defer.inlineCallbacks
+    def test_handleResult_asProducer(self):
+        def getResultToHandle():
+            col = self.broker.people.c
+            s = SA.select([col.name_first, col.name_last])
+            return s.execute()
+        fc = FakeConnection()
+        rp = yield self.broker.deferToQueue(getResultToHandle)
+        consumer = IterationConsumer(self.verbose, 0.05)
+        yield self.broker.handleResult(rp, consumer=consumer, conn=fc)
+        yield consumer.d
+        for k, row in enumerate(consumer.data):
+            self.assertIn(row, self.broker.defaultRoster)
+        self.assertEqual(k, 4)
+        self.assertTrue(fc.wasClosed)
+    
+    @defer.inlineCallbacks
+    def test_handleResult_empty(self):
+        def getResultToHandle():
+            col = self.broker.people.c
+            s = SA.select(
+                [col.name_first, col.name_last]).where(
+                    col.name_first == 'Impossible')
+            return s.execute()
+        rp = yield self.broker.deferToQueue(getResultToHandle)
+        result = yield self.broker.handleResult(rp)
+        self.assertEqual(result, [])
+            
 
 class TestTables(BrokerTestCase):
-    verbose = True
-    spew = True
+    verbose = False
+    spew = False
 
     def _tableList(self):
         """
         Adapted from
         https://www.mail-archive.com/sqlalchemy@googlegroups.com/msg00462.html
         """
+        def done(rows):
+            return [x[0] for x in rows]
+        
         eng = self.broker.q.engine
         if eng.name == 'sqlite':
             sql = """
@@ -183,7 +248,7 @@ class TestTables(BrokerTestCase):
             """
         elif eng.name == 'mysql':
             sql = "SHOW TABLES"
-        self.broker.sql(sql)
+        return self.broker.sql(sql).addCallback(done)
         
     @defer.inlineCallbacks
     def test_table(self):
@@ -228,8 +293,8 @@ class TestTables(BrokerTestCase):
 
 
 class TestTransactions(BrokerTestCase):
-    verbose = True
-    spew = True
+    verbose = False
+    spew = False
 
     def test_selectOneAndTwoArgs(self):
         def runInThread():
@@ -329,7 +394,7 @@ class TestTransactions(BrokerTestCase):
         consumer = IterationConsumer(self.verbose)
         cols = self.broker.people.c
         s = self.broker.select([cols.name_last, cols.name_first])
-        yield self.broker.selectorator(s, consumer)
+        consumer = yield self.broker.selectorator(s, consumer)
         self.assertEqual(len(consumer.data), 5)
 
     @defer.inlineCallbacks
@@ -338,15 +403,18 @@ class TestTransactions(BrokerTestCase):
         cols = self.broker.people.c
         # In this case, do NOT wait for the done-iterating deferred
         # before doing another selectoration
+        dSelectExecuted = defer.Deferred()
         s = self.broker.select([cols.name_last, cols.name_first])
-        d = self.broker.selectorator(s, slowConsumer)
-        # Add a new person while we are iterating the people from the
-        # last query
+        d = self.broker.selectorator(s, slowConsumer, dSelectExecuted)
+        # Wait until the query was executed...
+        yield dSelectExecuted
+        # ...then add a new person while we are iterating the people
+        # from that query
         yield self.broker.addPerson("George", "Washington")
         # Confirm we have one more person now
         fastConsumer = IterationConsumer(self.verbose)
         yield self.broker.everybody(consumer=fastConsumer)
-        self.assertEqual(len(fastConsumer.data), 6)
+        #self.assertEqual(len(fastConsumer.data), 6)
         # Now wait for the slow consumer
         yield d
         # It still should only have gotten the smaller number of people
@@ -354,16 +422,6 @@ class TestTransactions(BrokerTestCase):
         # Wait for the slow consumer's last write delay, just to avoid
         # unclean reactor messiness
         yield slowConsumer.d
-
-    @defer.inlineCallbacks
-    def test_transactMany(self):
-        dL = []
-        for letter in "htudg":
-            d = self.broker.matchingNames(letter)
-            dL.append(d)
-        yield defer.DeferredList(dL)
-        print self.broker.matches
-        self.assertEqual(self.broker.matches['Theodore'], ['h', 'd'])
 
     def test_transactionAutoStartup(self):
         d = self.broker.fakeTransaction(1)

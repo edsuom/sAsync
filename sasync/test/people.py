@@ -42,11 +42,11 @@ DB_URL = 'sqlite://'
 
 class PeopleBroker(AccessBroker):
     defaultRoster = (
-        ("Theodore",    "Roosevelt"),
-        ("Franklin",    "Roosevelt"),
-        ("Martin",      "Luther"),
-        ("Ronald",      "Reagan"),
-        ("Russ",        "Feingold"))
+        ("Theodore",    "Roosevelt"), # 1
+        ("Franklin",    "Roosevelt"), # 2
+        ("Martin",      "Luther"),    # 3
+        ("Ronald",      "Reagan"),    # 4
+        ("Russ",        "Feingold"))  # 5
     
     def __init__(self, url, **kw):
         self.matches = {}
@@ -73,27 +73,6 @@ class PeopleBroker(AccessBroker):
         # Iteration-ready; we return the ResultProxy, not a list of
         # rows from rp.fetchall()
         return rp
-
-    @transact
-    def matchingNames(self, letter):
-        def fullName(row):
-            firstName = row[self.people.c.name_first].capitalize()
-            lastName = row[self.people.c.name_last].capitalize()
-            return "%s %s" % (firstName, lastName)
-        
-        s = self.s
-        if not s('letterMatch'):
-            s([self.people],
-              SA.and_(
-                  self.people.c.name_first.like(SA.bindparam('first')),
-                  self.people.c.name_last.like(SA.bindparam('last'))))
-        match = "%" + letter + "%"
-        rows = s().execute(first=match, last=match).fetchall()
-        names = [fullName(row) for row in rows]
-        print "MN", letter, match, names
-        for name in names:
-            self.matches.setdefault(name, [])
-            self.matches[name].append(letter)
         
     @transact
     def addPerson(self, firstName, lastName):
