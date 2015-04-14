@@ -39,12 +39,13 @@ class SelectAndResultHolder(object):
     Everything is cleaned up via my L{close} method after the "loop"
     ends.
     """
-    def __init__(self, broker, *args):
+    def __init__(self, broker, *args, **kw):
         self.broker = broker
         if callable(args[0]):
             self._sObject = args[0](*args[1:])
         else:
             self._sObject = SA.select(args)
+        self.kw = kw
 
     def _wrapper(self, *args, **kw):
         """
@@ -77,7 +78,9 @@ class SelectAndResultHolder(object):
         immediate ResultProxy. Otherwise, you'll get a deferred that
         fires with the result, with row iteration coolness.
         """
-        return self.broker.execute(self._sObject, *args, **kw)
+        kw.update(self.kw)
+        result = self.broker.execute(self._sObject, *args, **kw)
+        return result
 
     def close(self):
         self._sObject.close()

@@ -24,7 +24,7 @@
 Asynchronous database transactions via SQLAlchemy.
 """
 
-import sys, logging
+import inspect, logging
 from contextlib import contextmanager
 
 from twisted.internet import defer, reactor
@@ -49,6 +49,33 @@ def nextFromRP(rp):
         return row
     raise StopIteration
 
+def transaction(self, func, *t_args, **t_kw):
+    """
+    Everything making up a transaction, and everything run in the
+    thread, is contained within this little function,
+    including of course a call to C{func}.
+    """
+    trans = self.connection.begin()
+    if not hasattr(func, 'im_self'):
+        t_args = (self,) + t_args
+    try:
+        result = func(*t_args, **t_kw)
+    except Exception as e:
+        trans.rollback()
+        raise e
+    # We can commit and release the lock now
+    trans.commit()
+    return result
+    
+def isNested():
+    frame = inspect.currentframe()
+    while True:
+        frame = frame.f_back
+        if frame is None:
+            return False
+        if frame.f_code == transaction.func_code:
+            return True
+    
 
 def transact(f):
     """
@@ -74,9 +101,6 @@ def transact(f):
     @keyword doLast: Set C{True} to assign lower possible priority,
       even lower than with niceness = 20.
 
-    @keyword ignore: Set this option to C{True} to have errors in the
-      transaction function ignored and just do the rollback quietly.
-
     @keyword consumer: Set this to a consumer object (must implement
       the L{twisted.interfaces.IConsumer} interface) and the
       L{SA.ResultProxy} will write its rows to it in Twisted
@@ -86,7 +110,6 @@ def transact(f):
     @keyword raw: Set C{True} to have the transaction result returned
       in its original form even if it's a RowProxy or other iterator.
     """
-    @defer.inlineCallbacks
     def substituteFunction(self, *args, **kw):
         """
         Puts the original function in the synchronous task queue and
@@ -110,56 +133,13 @@ def transact(f):
         subclass instance, and the queue for that instance will be
         used to run it.
         """
-        def transaction(func, *t_args, **t_kw):
-            """
-            Everything making up a transaction, and everything run in the
-            thread, is contained within this little function,
-            including of course a call to C{func}.
-            """
-            trans = self.connection.begin()
-            if not hasattr(func, 'im_self'):
-                t_args = (self,) + t_args
-            try:
-                result = func(*t_args, **t_kw)
-            except Exception as e:
-                trans.rollback()
-                if ignore:
-                    return
-                raise e
-            # We can commit and release the lock now
-            trans.commit()
-            return result
-
-        def isNested():
-            frame = sys._getframe()
-            while True:
-                frame = frame.f_back
-                if frame is None:
-                    return False
-                if frame.f_code == transaction.func_code:
-                    return True
-
         def oops(failureObj):
             # Encapsulate the failure object in a list to avoid the
             # errback chain until we are ready.
             return [failureObj]
 
-        # The 'raw' keyword is also used by the queue/worker, but
-        # 'asList', 'ignore', and 'consumer' are not.
-        raw = kw.get('raw', False)
-        asList = kw.pop('asList', False)
-        ignore = kw.pop('ignore', False)
-        consumer = kw.pop('consumer', None)
-        if consumer and raw:
-            raise ValueError(
-                "Can't supply a consumer for a raw transaction result")
-        if isNested():
-            # The call and its result only get special treatment in
-            # the outermost @transact function
-            result = f(self, *args, **kw)
-        else:
-            # Here's where the ThreadQueue actually runs the
-            # transaction
+        @defer.inlineCallbacks
+        def doTransaction():
             if self.singleton or not self.running:
                 # Not yet running, "wait" here for queue, engine, and
                 # connection
@@ -172,7 +152,7 @@ def transact(f):
                     # ResultProxy iteration.
                     self.lock.release()
             result = yield self.q.call(
-                transaction, f, *args, **kw).addErrback(oops)
+                transaction, self, f, *args, **kw).addErrback(oops)
             if not raw:
                 result = yield self.handleResult(
                     result, consumer=consumer, asList=asList)
@@ -180,15 +160,31 @@ def transact(f):
                 # If we can't handle multiple connections, we held
                 # onto the lock throughout all of this
                 self.lock.release()
-        # If the result is a failure, raise its exception to trigger
-        # the errback outside this function. Very weird, I
-        # know. Basically, there must be an exception IN this function
-        # to trigger the errback OUTSIDE of it. Just returning a
-        # Failure doesn't seem to work.
-        if isinstance(result, list):
-            if len(result) == 1 and isinstance(result[0], Failure):
-                result[0].raiseException()
-        defer.returnValue(result)
+            # If the result is a failure, raise its exception to trigger
+            # the errback outside this function. Very weird, I
+            # know. Basically, there must be an exception IN this function
+            # to trigger the errback OUTSIDE of it. Just returning a
+            # Failure doesn't seem to work.
+            if isinstance(result, list):
+                if len(result) == 1 and isinstance(result[0], Failure):
+                    result[0].raiseException()
+            defer.returnValue(result)
+
+        # The 'raw' keyword is also used by the queue/worker, but
+        # 'asList', 'isNested', and 'consumer' are not.
+        raw = kw.get('raw', False)
+        asList = kw.pop('asList', False)
+        consumer = kw.pop('consumer', None)
+        if consumer and raw:
+            raise ValueError(
+                "Can't supply a consumer for a raw transaction result")
+        if kw.pop('isNested', False) or isNested():
+            # The call and its result only get special treatment in
+            # the outermost @transact function
+            return f(self, *args, **kw)
+        # Here's where the ThreadQueue actually runs the
+        # transaction
+        return doTransaction()
 
     # We need to ignore any transact decorator on an AccessBroker's
     # 'first' method, because it can't wait for the lock
@@ -282,7 +278,7 @@ class AccessBroker(object):
         # aren't wanted.
         self.lock = asynqueue.DeferredLock()
         self.lock.acquire().addCallback(startup)
-
+        
     def connect(self):
         def nowConnect(null):
             return self.q.call(
@@ -518,14 +514,19 @@ class AccessBroker(object):
         the result instead of the rp. Do all of this within the
         context of the placeholder:
 
-        with <me>.select(<table>.c.foo) as sh:
+        with <me>.selex(<table>.c.foo) as sh:
             sh.where(<table>.c.bar == "correct")
         for dRow in sh():
             row = yield dRow
             ...
 
+        You can call this outside of a transaction and get a deferred
+        result from calling the placeholder object. For such usage,
+        you can specify the usual transaction keywords via keywords to
+        this method.
         """
-        sh = SelectAndResultHolder(self, *args)
+        kw['isNested'] = isNested()
+        sh = SelectAndResultHolder(self, *args, **kw)
         yield sh
 
     @defer.inlineCallbacks

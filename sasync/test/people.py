@@ -80,6 +80,13 @@ class PeopleBroker(AccessBroker):
             name_last=lastName, name_first=firstName)
 
     @transact
+    def familyMembers(self, lastName):
+        # Uses a selex object nested inside a transaction
+        with self.selex(self.people.c.name_first) as sh:
+            sh.where(self.people.c.name_last == lastName)
+        return [x[0] for x in sh().fetchall()]
+    
+    @transact
     def fakeTransaction(self, x):
         x += 1
         time.sleep(0.2)

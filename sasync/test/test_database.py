@@ -62,12 +62,11 @@ class BrokerTestCase(TestCase):
             kw['spew'] = self.spew
         return PeopleBroker(DB_URL, **kw)
     
-    @defer.inlineCallbacks
     def setUp(self):
         self.handler = TestHandler(self.isVerbose())
         logging.getLogger('asynqueue').addHandler(self.handler)
         self.broker = self.brokerFactory()
-        yield self.broker.waitUntilRunning()
+        return self.broker.waitUntilRunning()
         
     @defer.inlineCallbacks
     def tearDown(self):
@@ -376,6 +375,12 @@ class TestTransactions(BrokerTestCase):
         N = rp.rowcount
         self.assertGreater(N, 0)
 
+    def test_selex_nested(self):
+        def gotMembers(members):
+            self.assertIn("Franklin", members)
+            self.assertIn("Theodore", members)
+        return self.broker.familyMembers("Roosevelt").addCallback(gotMembers)
+        
     @defer.inlineCallbacks        
     def test_selectorator(self):
         cols = self.broker.people.c
