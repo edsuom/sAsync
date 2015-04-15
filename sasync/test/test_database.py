@@ -362,9 +362,8 @@ class TestTransactions(BrokerTestCase):
         cols = self.broker.people.c
         with self.broker.selex(cols.name_first) as sh:
             sh.where(cols.name_last == 'Luther')
-        rp = yield sh(raw=True)
-        row = rp.first()
-        self.assertEqual(row[0], 'Martin')
+        row = yield sh(asList=True)
+        self.assertEqual(row[0][0], 'Martin')
 
     @defer.inlineCallbacks
     def test_selex_delete(self):

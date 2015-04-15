@@ -30,6 +30,12 @@ class AsyncError(Exception):
     The requested action is incompatible with asynchronous operations.
     """
 
+class TransactionError(Exception):
+    """
+    An exception was raised while trying to run a transaction.
+    """
+
+    
 class DatabaseError(Exception):
     """
     A problem occured when trying to access the database.

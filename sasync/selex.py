@@ -36,6 +36,8 @@ class SelectAndResultHolder(object):
     a callable and any args for it, then call me for its
     result.
 
+    Provide my constructor with 
+    
     Everything is cleaned up via my L{close} method after the "loop"
     ends.
     """
@@ -70,13 +72,18 @@ class SelectAndResultHolder(object):
 
     def __call__(self, *args, **kw):
         """
-        Eexecutes the select object, with any supplied args and keywords,
-        in a transaction.
+        Executes the select object, with any supplied args and keywords.
 
         If you call this from within a transaction already, the
         nesting will be dealt with appropriately and you will get an
         immediate ResultProxy. Otherwise, you'll get a deferred that
         fires with the result, with row iteration coolness.
+
+        As with any transaction, you can disable such behavior and get
+        either the raw ResultProxy (with 'raw') or a list of rows
+        (with 'asList'). Those transaction keywords can get supplied
+        to my constructor or to this call, if it doesn't itself occur
+        from inside a transaction.
         """
         kw.update(self.kw)
         result = self.broker.execute(self._sObject, *args, **kw)
