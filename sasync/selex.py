@@ -86,8 +86,19 @@ class SelectAndResultHolder(object):
         from inside a transaction.
         """
         kw.update(self.kw)
-        result = self.broker.execute(self._sObject, *args, **kw)
-        return result
+        self.result = self.broker.execute(self._sObject, *args, **kw)
+        return self.result
 
     def close(self):
-        self._sObject.close()
+        """
+        Closes the ResultProxy if possible.
+        """
+        def closer(rp):
+            rp.close()
+            return rp
+        
+        result = getattr(self, 'result', None)
+        if isinstance(result, defer.Deferred):
+            result.addCallback(closer)
+        elif callable(getattr(result, 'close', None)):
+            result.close()

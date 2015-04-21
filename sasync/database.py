@@ -150,7 +150,7 @@ def transact(f):
                     # If we can handle multiple connections (TODO), we
                     # don't want to hold onto the lock because
                     # transactions are queued in the ThreadQueue and
-                    # additional connections can be obtained when ding
+                    # additional connections can be obtained when doing
                     # ResultProxy iteration.
                     self.lock.release()
             result = yield self.q.call(
@@ -533,6 +533,7 @@ class AccessBroker(object):
         kw['isNested'] = isNested()
         sh = SelectAndResultHolder(self, *args, **kw)
         yield sh
+        sh.close()
 
     @defer.inlineCallbacks
     def selectorator(self, selectObj, consumer=None, de=None):
