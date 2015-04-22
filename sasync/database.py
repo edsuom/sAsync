@@ -69,15 +69,27 @@ def transaction(self, func, *t_args, **t_kw):
         trans.commit()
         return result
     
-def isNested():
+def isNested(self):
+    firstCode = None
     frame = inspect.currentframe()
     while True:
         frame = frame.f_back
         if frame is None:
-            return False
+            result = False
+            break
         if frame.f_code == transaction.func_code:
-            return True
-    
+            result = True
+            break
+        # Check if nested inside first-transaction code if necessary
+        if firstCode is None and hasattr(self, 'first'):
+            firstCode = getattr(self.first, 'func_code', False)
+        if firstCode and frame.f_code == firstCode:
+            result = True
+            break
+    del frame
+    del firstCode
+    return result
+
 
 def transact(f):
     """
@@ -180,7 +192,7 @@ def transact(f):
         if consumer and raw:
             raise ValueError(
                 "Can't supply a consumer for a raw transaction result")
-        if kw.pop('isNested', False) or isNested():
+        if kw.pop('isNested', False) or isNested(self):
             # The call and its result only get special treatment in
             # the outermost @transact function
             return f(self, *args, **kw)
@@ -530,7 +542,7 @@ class AccessBroker(object):
         you can specify the usual transaction keywords via keywords to
         this method.
         """
-        kw['isNested'] = isNested()
+        kw['isNested'] = isNested(self)
         sh = SelectAndResultHolder(self, *args, **kw)
         yield sh
         sh.close()
