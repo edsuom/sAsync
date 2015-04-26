@@ -1,27 +1,35 @@
-# sAsync:
-# An enhancement to the SQLAlchemy package that provides persistent
-# item-value stores, arrays, and dictionaries, and an access broker for
-# conveniently managing database access, table setup, and
-# transactions. Everything can be run in an asynchronous fashion using
-# the Twisted framework and its deferred processing capabilities.
-#
-# Copyright (C) 2006-7, 2015 by Edwin A. Suominen, http://edsuom.com
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-# 
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-# 
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 """
 Queuing for asynchronous database transactions via SQLAlchemy.
+
+
+About sAsync
+============
+B{sAsync} is an enhancement to the SQLAlchemy package that provides
+persistent item-value stores, arrays, and dictionaries, and an access
+broker for conveniently managing database access, table setup, and
+transactions. Everything can be run in an asynchronous fashion using
+the Twisted framework and its C{Deferred} processing capabilities.
+
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+U{http://edsuom.com/sAsync}
+
+
+Licensing
+=========
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see U{http://www.gnu.org/licenses/}.
+
 """
 
 import logging
@@ -36,8 +44,8 @@ from sqlalchemy import pool
 
 class Factory(object):
     """
-    I generate ThreadQueue objects, a unique one for each call to me
-    with a unique url-kw combination.
+    I generate L{asynqueue.ThreadQueue} objects, a unique one for each
+    call to me with a unique url-kw combination.
     """
     globalQueue = None
     
@@ -47,8 +55,9 @@ class Factory(object):
     @staticmethod
     def newQueue(url, **kw):
         """
-        Returns a deferred that fires with a new ThreadQueue that has a
-        new SQLAlchemy engine attached as its 'engine' attribute.
+        Returns a C{Deferred} that fires with a new L{asynqueue.ThreadQueue}
+        that has a new SQLAlchemy engine attached as its I{engine}
+        attribute.
         """
         def getEngine():
             # Add a NullHandler to avoid "No handlers could be
@@ -107,8 +116,8 @@ class Factory(object):
     def kill(self, q):
         """
         Removes the supplied queue object from my local queue cache and
-        shuts down the queue. Returns a deferred that fires when the
-        removal and shutdown are done.
+        shuts down the queue. Returns a C{Deferred} that fires when
+        the removal and shutdown are done.
 
         Has no effect on the global queue.
         """
@@ -125,10 +134,10 @@ class Factory(object):
 
     def __call__(self, *url, **kw):
         """
-        Returns a deferred that fires with an Asynqueue ThreadQueue that
-        has an SQLAlchemy engine attached to it, constructed with the
-        supplied url and any keywords. The engine can be referenced
-        via the queue's 'engine' attribute.
+        Returns a C{Deferred} that fires with an L{asynqueue.ThreadQueue}
+        that has an C{SQLAlchemy} engine attached to it, constructed
+        with the supplied url and any keywords. The engine can be
+        referenced via the queue's I{engine} attribute.
 
         If a queue has already been constructed with the same url-kw
         parameters, that same one is returned. Otherwise, a new one is

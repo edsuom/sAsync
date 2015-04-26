@@ -1,27 +1,35 @@
-# sAsync:
-# An enhancement to the SQLAlchemy package that provides persistent
-# item-value stores, arrays, and dictionaries, and an access broker for
-# conveniently managing database access, table setup, and
-# transactions. Everything can be run in an asynchronous fashion using
-# the Twisted framework and its deferred processing capabilities.
-#
-# Copyright (C) 2006-7, 2015 by Edwin A. Suominen, http://edsuom.com
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-# 
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-# 
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 """
-Dictionary-like objects with behind-the-scenes database persistence
+Dictionary-like objects with behind-the-scenes database persistence.
+
+
+About sAsync
+============
+B{sAsync} is an enhancement to the SQLAlchemy package that provides
+persistent item-value stores, arrays, and dictionaries, and an access
+broker for conveniently managing database access, table setup, and
+transactions. Everything can be run in an asynchronous fashion using
+the Twisted framework and its deferred processing capabilities.
+
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+U{http://edsuom.com/sAsync}
+
+
+Licensing
+=========
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see U{http://www.gnu.org/licenses/}.
+
 
 """
 
@@ -61,9 +69,9 @@ class PersistentDictBase(MutableMapping, object):
     access. Lazy writing will still be done, but behind the scenes and
     with no API access to write completions.
 
-    B{IMPORTANT}: As with all sasync data store objects, make sure you
-    call my L{shutdown} method for an instance of me that you're done
-    with before allowing that instance to be deleted.
+    B{IMPORTANT}: As with all C{sAsync} data store objects, make sure
+    you call my L{shutdown} method for an instance of me that you're
+    done with before allowing that instance to be deleted.
 
     @ivar isPreloadMode: Boolean flag that indicates if I am operating in
         preload mode.
@@ -71,17 +79,12 @@ class PersistentDictBase(MutableMapping, object):
     def __init__(self, ID, *url, **kw):
         """
         Instantiates me with an item store keyed to the supplied hashable
-        I{ID}.  Ensures that I have access to a class-wide instance of a
-        L{Search} object so that I can update the database's full-text index
-        when writing values containing text content.
+        I{ID}.
 
         In addition to any engine-specifying keywords supplied, the following
         are particular to this constructor:
 
         @param ID: A hashable object that is used as my unique identifier.
-        
-        @keyword search: Set C{True} if text indexing is to be updated
-          when items are added, updated, or deleted.
         
         """
         try:

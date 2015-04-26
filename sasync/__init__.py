@@ -2,13 +2,14 @@
 Introduction
 ============
 
-B{sAsync} is an enhancement to the SQLAlchemy package that provides persistent
-item-value stores, arrays, and dictionaries, and an access broker for
-conveniently managing database access, table setup, and
-transactions. Everything can be run in an asynchronous fashion using the
-Twisted framework and its deferred processing capabilities.
+B{sAsync} is an enhancement to the SQLAlchemy package that provides
+persistent item-value stores, arrays, and dictionaries, and an access
+broker for conveniently managing database access, table setup, and
+transactions. Everything can be run in an asynchronous fashion using
+the Twisted framework and its deferred processing capabilities.
 
-Copyright (C) 2006-2007, 2015 by Edwin A. Suominen, U{http://edsuom.com}
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+U{http://edsuom.com/sAsync}
 
 
 Licensing
@@ -25,16 +26,16 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
+along with this program.  If not, see U{http://www.gnu.org/licenses/}.
 
 
 Usage
 =====
 
 sAsync wraps your SQLAlchemy database access code inside asynchronous
-transactions.  At the lowest level, it provides a @transact decorator
-for your database-access methods that makes them immediately return a
-Twisted Deferred object.
+transactions.  At the lowest level, it provides a C{@transact}
+decorator for your database-access methods that makes them immediately
+return a Twisted Deferred object.
 
 For example, suppose you want to run a method that selects a list of
 row objects from a table. Instead of waiting around for your method to

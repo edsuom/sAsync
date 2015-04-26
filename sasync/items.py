@@ -1,28 +1,39 @@
-# sAsync:
-# An enhancement to the SQLAlchemy package that provides persistent
-# item-value stores, arrays, and dictionaries, and an access broker for
-# conveniently managing database access, table setup, and
-# transactions. Everything can be run in an asynchronous fashion using
-# the Twisted framework and its deferred processing capabilities.
-#
-# Copyright (C) 2006, 2015 by Edwin A. Suominen, http://edsuom.com
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-# 
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-# 
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 """
-Dictionary-like objects with behind-the-scenes database persistence
+Dictionary-like objects with behind-the-scenes database persistence.
 
+L{Items} provides a public interface for non-blocking database access
+to persistently stored name:value items within a uniquely-identified
+group, e.g., for a persistent dictionary using L{pdict.PersistentDict}.
+
+
+
+About sAsync
+============
+B{sAsync} is an enhancement to the SQLAlchemy package that provides
+persistent item-value stores, arrays, and dictionaries, and an access
+broker for conveniently managing database access, table setup, and
+transactions. Everything can be run in an asynchronous fashion using
+the Twisted framework and its deferred processing capabilities.
+
+Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
+U{http://edsuom.com/sAsync}
+
+
+Licensing
+=========
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see U{http://www.gnu.org/licenses/}.
 """
 
 # Imports
@@ -158,13 +169,13 @@ class Items(object):
     """
     I provide a public interface for non-blocking database access to
     persistently stored name:value items within a uniquely-identified group,
-    e.g., for a persistent dictionary using L{PersistentDict}.
+    e.g., for a persistent dictionary using L{pdict.PersistentDict}.
 
     Before you use any instance of me, you must specify the parameters for
     creating an SQLAlchemy database engine. A single argument is used, which
     specifies a connection to a database via an RFC-1738 url. In addition, the
     following keyword options can be employed, which are listed in the API docs
-    for L{sasync} and L{sasync.database.AccessBroker}.
+    for L{sasync} and L{database.AccessBroker}.
 
     You can set an engine globally, for all instances of me via the
     L{sasync.engine} package-level function, or via the L{AccessBroker.engine}
