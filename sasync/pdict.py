@@ -142,10 +142,8 @@ class PersistentDictBase(MutableMapping, object):
         
         """
         if lastOnly:
-            d = self.writeTracker.deferToLast()
-        else:
-            d = self.writeTracker.deferToAll()
-        return d
+            return self.writeTracker.deferToLast()
+        return self.writeTracker.deferToAll()
 
 
 class PersistentDict(PersistentDictBase):

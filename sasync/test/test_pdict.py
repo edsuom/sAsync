@@ -310,12 +310,12 @@ class TestPdictNormalMain(PdictNormal, TestCase):
         d.addCallback(checkItems)
         return d
 
+    @defer.inlineCallbacks
     def testSetAndGet(self):
         self.p['a'] = 10        
-        d = self.p.deferToWrites()
-        d.addCallback(lambda _: self.p['a'])
-        d.addCallback(self.failUnlessEqual, 10)
-        return d
+        yield self.p.deferToWrites()
+        value = yield self.p['a']
+        self.failUnlessEqual(value, 10)
 
     def testSetAndLoadAll(self):
         self.p['a'] = 1
