@@ -272,7 +272,7 @@ class PdictNormal(Pdict):
 
 
 class TestPdictNormalCore(PdictNormal, TestCase):
-    def testSomeWriteSomeSet(self):
+    def test_someWriteSomeSet(self):
         def setStuff(null):
             self.p['b'] = 'beta'
             self.p['d'] = 'delta'
@@ -290,7 +290,7 @@ class TestPdictNormalCore(PdictNormal, TestCase):
             a='alpha', b='bravo', c='charlie').addCallback(setStuff)
 
     @defer.inlineCallbacks
-    def testWriteAndGet(self):
+    def test_writeAndGet(self):
         yield self.writeToDB(a=100, b=200, c='foo')
         x = yield self.p['a']
         self.failUnlessEqual(x, 100)
@@ -301,7 +301,7 @@ class TestPdictNormalCore(PdictNormal, TestCase):
 
 
 class TestPdictNormalMain(PdictNormal, TestCase):
-    def testLoadAll(self):
+    def test_loadAll(self):
         def checkItems(items):
             self.failUnlessEqual(items, {'a':1, 'b':2})
             
@@ -311,13 +311,13 @@ class TestPdictNormalMain(PdictNormal, TestCase):
         return d
 
     @defer.inlineCallbacks
-    def testSetAndGet(self):
+    def test_setAndGet(self):
         self.p['a'] = 10        
         yield self.p.deferToWrites()
         value = yield self.p['a']
         self.failUnlessEqual(value, 10)
 
-    def testSetAndLoadAll(self):
+    def test_setAndLoadAll(self):
         self.p['a'] = 1
         self.p['b'] = 2
 
@@ -326,7 +326,7 @@ class TestPdictNormalMain(PdictNormal, TestCase):
         d.addCallback(self.failUnlessEqual, {'a':1, 'b':2})
         return d
             
-    def testSetdefaultEmpty(self):
+    def test_setdefaultEmpty(self):
         self.p['a'] = 1
         self.p.writeTracker.put(self.p.setdefault('b', 2))
 
@@ -335,7 +335,7 @@ class TestPdictNormalMain(PdictNormal, TestCase):
         d.addCallback(self.failUnlessEqual, {'a':1, 'b':2})
         return d
 
-    def testSetClearAndLoadAll(self):
+    def test_setClearAndLoadAll(self):
         self.p['a'] = 1
         self.p['b'] = 2
         self.p.clear()
@@ -344,7 +344,7 @@ class TestPdictNormalMain(PdictNormal, TestCase):
         d.addCallback(self.failUnlessEqual, {})
         return d
 
-    def testSetdefaultSet(self):
+    def test_setdefaultSet(self):
         self.p['a'] = 1
         self.p.writeTracker.put(self.p.setdefault('a', 2))
 
@@ -353,7 +353,7 @@ class TestPdictNormalMain(PdictNormal, TestCase):
         d.addCallback(self.failUnlessEqual, [('a',1)])
         return d
 
-    def testSetAndGetComplex(self):
+    def test_setAndGetComplex(self):
         self.p['a'] = 1
         self.p['b'] = 2
         self.p.writeTracker.put(self.p.setdefault('b', 20))
@@ -367,28 +367,28 @@ class TestPdictNormalMain(PdictNormal, TestCase):
         d.addCallback(self.failUnless, "Items not equal")
         return d
 
-    def testKeys(self):
+    def test_keys(self):
         d = self.writeToDB(a=1.1, b=1.2, c=1.3)
         d.addCallback(lambda _: self.p.keys())
         d.addCallback(itemsEqual, ['a', 'b', 'c'])
         d.addCallback(self.failUnless)
         return d
 
-    def testValues(self):
+    def test_values(self):
         d = self.writeToDB(a=1.1, b=1.2, c=1.3)
         d.addCallback(lambda _: self.p.values())
         d.addCallback(itemsEqual, [1.1, 1.2, 1.3])
         d.addCallback(self.failUnless)
         return d
 
-    def testItems(self):
+    def test_items(self):
         d = self.writeToDB(a=2.1, b=2.2, c=2.3)
         d.addCallback(lambda _: self.p.items())
         d.addCallback(itemsEqual, [('a',2.1), ('b',2.2), ('c',2.3)])
         d.addCallback(self.failUnless)
         return d
 
-    def testContains(self):
+    def test_contains(self):
         def one(null):
             d = self.p.has_key('a')
             d.addCallback(
@@ -407,7 +407,7 @@ class TestPdictNormalMain(PdictNormal, TestCase):
         d.addCallback(another)
         return d
 
-    def testGetMethod(self):
+    def test_getMethod(self):
         d = self.clearDB()
         d.addCallback(lambda _: self.writeToDB(a='present'))
         d.addCallback(lambda _: self.p.get('a', None))
@@ -435,11 +435,11 @@ class PdictPreload(Pdict):
 
 
 class TestPdictPreload(PdictPreload, TestCase):
-    def testSetAndGet(self):
+    def test_setAndGet(self):
         self.p['a'] = 10        
         self.failUnlessEqual(self.p['a'], 10)
 
-    def testSetActuallyWrites(self):
+    def test_setActuallyWrites(self):
         def first(null):
             self.p['a'] = 'new'
             return self.p.deferToWrites()

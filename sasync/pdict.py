@@ -119,9 +119,8 @@ class PersistentDictBase(MutableMapping, object):
         """
         Shuts down my database L{Transactor} and its synchronous task queue.
         """
-        d = self.writeTracker.deferToAll()
-        d.addCallback(self.i.shutdown)
-        return d
+        return self.writeTracker.deferToAll().addCallback(
+            lambda _: self.i.shutdown())
     
     def loadAll(self, *null):
         """
