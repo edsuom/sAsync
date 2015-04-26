@@ -81,7 +81,7 @@ class TestItemsTransactor(ItemsMixin, TestCase):
     def tearDown(self):
         return self.i.t.post()
 
-    def testLoad(self):
+    def test_load(self):
         def gotValue(value, name):
             if name == 'foo':
                 self.failUnlessEqual(value, 'OK')
@@ -102,7 +102,7 @@ class TestItemsTransactor(ItemsMixin, TestCase):
             dList.append(self.i.t.load(name).addCallback(gotValue, name))
         return DeferredList(dList)
 
-    def testLoad(self):
+    def test_load(self):
         def gotValue(value, name):
             if name == 'foo':
                 self.failUnlessEqual(value, 'OK')
@@ -123,7 +123,7 @@ class TestItemsTransactor(ItemsMixin, TestCase):
             dList.append(self.i.t.load(name).addCallback(gotValue, name))
         return DeferredList(dList)
 
-    def testLoadAbsent(self):
+    def test_loadAbsent(self):
         def gotValue(value):
             self.failUnless(
                 isinstance(value, items.Missing),
@@ -134,7 +134,7 @@ class TestItemsTransactor(ItemsMixin, TestCase):
         return self.i.t.load('invalid').addCallbacks(
             gotValue, gotExpectedError)
 
-    def testLoadAll(self):
+    def test_loadAll(self):
         def loaded(items):
             itemKeys = items.keys()
             itemKeys.sort()
@@ -162,7 +162,7 @@ class TestItemsTransactor(ItemsMixin, TestCase):
         return DeferredList(dList).addCallback(
             callback, self.whatToInsert.copy())
 
-    def testInsert(self):
+    def test_insert(self):
         def done(null, items):
             def check():
                 table = self.i.t.sasync_items
@@ -182,7 +182,7 @@ class TestItemsTransactor(ItemsMixin, TestCase):
             return self.i.t.deferToQueue(check)
         return self.insertLots(done)
 
-    def testDeleteOne(self):
+    def test_deleteOne(self):
         def gotOriginal(value):
             self.failUnlessEqual(value, 'OK')
             return self.i.t.delete('foo').addCallback(getAfterDeleted)
@@ -192,20 +192,20 @@ class TestItemsTransactor(ItemsMixin, TestCase):
             self.failUnless(isinstance(value, items.Missing))
         return self.i.t.load('foo').addCallback(gotOriginal)
 
-    def testDeleteMultiple(self):
+    def test_deleteMultiple(self):
         def getAfterDeleted(null):
             return self.i.t.loadAll().addCallback(checkIfDeleted)
         def checkIfDeleted(values):
             self.failUnlessEqual(values, {})
         return self.i.t.delete('foo', 'bar').addCallback(getAfterDeleted)
 
-    def testNamesFew(self):
+    def test_namesFew(self):
         def got(names):
             names.sort()
             self.failUnlessEqual(names, ['bar', 'foo'])
         return self.i.t.names().addCallback(got)
 
-    def testNamesMany(self):
+    def test_namesMany(self):
         def get(null, items):
             return self.i.t.names().addCallback(got, items.keys())
         def got(names, shouldHave):
@@ -215,7 +215,7 @@ class TestItemsTransactor(ItemsMixin, TestCase):
             self.failUnlessEqual(names, shouldHave)
         return self.insertLots(get)
 
-    def testUpdate(self):
+    def test_update(self):
         def update(null, items):
             return DeferredList([
                 self.i.t.update('alpha',   1),
@@ -236,7 +236,7 @@ class TestItems(ItemsMixin, TestCase):
     def setUp(self):
         self.i = items.Items(GROUP_ID, "sqlite:///%s" % db)
     
-    def testInsertAndLoad(self):
+    def test_insertAndLoad(self):
         nouns = ('lamp', 'rug', 'chair')
         def first(null):
             return self.i.loadAll().addCallback(second)
@@ -244,7 +244,7 @@ class TestItems(ItemsMixin, TestCase):
             self.failUnlessEqual(items['Nouns'], nouns)
         return self.i.insert('Nouns', nouns).addCallback(first)
 
-    def testInsertAndDelete(self):
+    def test_insertAndDelete(self):
         items = {'a':0, 'b':1, 'c':2, 'd':3, 'e':4}
 
         def first(null):
@@ -264,7 +264,7 @@ class TestItems(ItemsMixin, TestCase):
             dL.append(self.i.insert(name, value))
         return DeferredList(dL).addCallback(first)
 
-    def testInsertAndLoadAll(self):
+    def test_insertAndLoadAll(self):
         items = {'a':0, 'b':1, 'c':2, 'd':3, 'e':4}
         def first(null):
             return self.i.loadAll().addCallback(second)
@@ -276,7 +276,7 @@ class TestItems(ItemsMixin, TestCase):
             dL.append(self.i.insert(name, value))
         return DeferredList(dL).addCallback(first)
 
-    def testInsertAndUpdate(self):
+    def test_insertAndUpdate(self):
         items = {'a':0, 'b':1, 'c':2, 'd':3, 'e':4}
         def first(null):
             return self.i.update('b', 10).addCallback(second)
@@ -303,7 +303,7 @@ class TestItemsIntegerNames(ItemsMixin, TestCase):
             dL.append(self.i.insert(name, value))
         return DeferredList(dL)
 
-    def testNames(self):
+    def test_names(self):
         def first(null):
             return self.i.names().addCallback(second)
         def second(names):
@@ -311,7 +311,7 @@ class TestItemsIntegerNames(ItemsMixin, TestCase):
             self.failUnlessEqual(names, [1, 2, 3, 4])
         return self.insertStuff().addCallback(first)
 
-    def testLoadAll(self):
+    def test_loadAll(self):
         def first(null):
             return self.i.loadAll().addCallback(second)
         def second(loaded):
@@ -330,7 +330,7 @@ class TestItemsStringNames(ItemsMixin, TestCase):
             dL.append(self.i.insert(name, value))
         return DeferredList(dL)
 
-    def testNames(self):
+    def test_names(self):
         def first(null):
             return self.i.names().addCallback(second)
         def second(names):
@@ -338,7 +338,7 @@ class TestItemsStringNames(ItemsMixin, TestCase):
             self.failUnlessEqual(names, ['1', '2', '3', '4'])
         return self.insertStuff().addCallback(first)        
 
-    def testLoadAll(self):
+    def test_loadAll(self):
         def first(null):
             return self.i.loadAll().addCallback(second)
         def second(loaded):
