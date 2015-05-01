@@ -1,39 +1,31 @@
+# sAsync:
+# An enhancement to the SQLAlchemy package that provides persistent
+# item-value stores, arrays, and dictionaries, and an access broker for
+# conveniently managing database access, table setup, and
+# transactions. Everything can be run in an asynchronous fashion using
+# the Twisted framework and its deferred processing capabilities.
+#
+# Copyright (C) 2006, 2015 by Edwin A. Suominen, http://edsuom.com/sAsync
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 """
 Dictionary-like objects with behind-the-scenes database persistence.
 
 L{Items} provides a public interface for non-blocking database access
 to persistently stored name:value items within a uniquely-identified
 group, e.g., for a persistent dictionary using L{pdict.PersistentDict}.
-
-
-
-About sAsync
-============
-B{sAsync} is an enhancement to the SQLAlchemy package that provides
-persistent item-value stores, arrays, and dictionaries, and an access
-broker for conveniently managing database access, table setup, and
-transactions. Everything can be run in an asynchronous fashion using
-the Twisted framework and its deferred processing capabilities.
-
-Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
-U{http://edsuom.com/sAsync}
-
-
-Licensing
-=========
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see U{http://www.gnu.org/licenses/}.
 """
 
 # Imports
@@ -56,14 +48,14 @@ class Missing:
 
 class Transactor(AccessBroker):
     """
-    I do the hands-on work of non-blocking database access for the persistence
-    of name:value items within a uniquely-identified group, e.g., for a
-    persistent dictionary using L{PersistentDict}.
+    I do the hands-on work of non-blocking database access for the
+    persistence of C{name:value} items within a uniquely-identified
+    group, e.g., for a persistent dictionary using
+    L{pdict.PersistentDict}.
 
-    My methods return Twisted deferred instances to the results of their
-    database accesses rather than forcing the client code to block while the
-    database access is being completed.
-    
+    My methods return Twisted C{Deferred} instances to the results of
+    their database accesses rather than forcing the client code to
+    block while the database access is being completed.
     """
     def __init__(self, ID, *url, **kw):
         """
@@ -184,10 +176,8 @@ class Items(object):
     """
     def __init__(self, ID, *url, **kw):
         """
-        Instantiates me for the items of a particular group uniquely identified
-        by the supplied hashable I{ID}. Ensures that I have access to a
-        class-wide instance of a L{Search} object so that I can update the
-        database's full-text index when writing values containing text content.
+        Instantiates me for the items of a particular group uniquely
+        identified by the supplied hashable I{ID}.
 
         In addition to any engine-specifying keywords supplied, the following
         are particular to this constructor:
@@ -197,7 +187,6 @@ class Items(object):
         @keyword nameType: A C{type} object defining the type that each name
             will be coerced to after being loaded as a string from the
             database.
-
         """
         try:
             self.groupID = hash(ID)

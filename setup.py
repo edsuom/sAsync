@@ -7,7 +7,7 @@
 # transactions. Everything can be run in an asynchronous fashion using
 # the Twisted framework and its deferred processing capabilities.
 #
-# Copyright (C) 2006, 2015 by Edwin A. Suominen, http://edsuom.com
+# Copyright (C) 2006, 2015 by Edwin A. Suominen, http://edsuom.com/sAsync
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -32,7 +32,7 @@ from setuptools import setup
 
 
 ### Define requirements
-required = ['SQLAlchemy>=0.5', 'AsynQueue']
+required = ['SQLAlchemy>=0.5', 'AsynQueue>=0.8.1']
 
 
 ### Define setup options
@@ -40,9 +40,8 @@ kw = {'version':'0.8.1',
       'license':'GPL',
       'platforms':'OS Independent',
 
-      'url':"http://foss.edsuom.com/%s/" % NAME,
+      'url':"http://edsuom.com/{}.html".format(NAME),
       'author':'Edwin A. Suominen',
-      
       'maintainer':'Edwin A. Suominen',
       
       'install_requires':required,

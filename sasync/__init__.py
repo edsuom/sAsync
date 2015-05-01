@@ -1,67 +1,33 @@
-"""
-Introduction
-============
+# sAsync:
+# An enhancement to the SQLAlchemy package that provides persistent
+# item-value stores, arrays, and dictionaries, and an access broker for
+# conveniently managing database access, table setup, and
+# transactions. Everything can be run in an asynchronous fashion using
+# the Twisted framework and its deferred processing capabilities.
+#
+# Copyright (C) 2006, 2015 by Edwin A. Suominen, http://edsuom.com/sAsync
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-B{sAsync} is an enhancement to the SQLAlchemy package that provides
+"""
+An enhancement to the C{SQLAlchemy} package that provides
 persistent item-value stores, arrays, and dictionaries, and an access
 broker for conveniently managing database access, table setup, and
 transactions. Everything can be run in an asynchronous fashion using
 the Twisted framework and its deferred processing capabilities.
 
-Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
-U{http://edsuom.com/sAsync}
-
-
-Licensing
-=========
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see U{http://www.gnu.org/licenses/}.
-
-
-Usage
-=====
-
-sAsync wraps your SQLAlchemy database access code inside asynchronous
-transactions.  At the lowest level, it provides a C{@transact}
-decorator for your database-access methods that makes them immediately
-return a Twisted Deferred object.
-
-For example, suppose you want to run a method that selects a list of
-row objects from a table. Instead of waiting around for your method to
-return the list, blocking everything else your program is trying to
-do, you decorate it with @transact and run it. It immediately hands
-you a Deferred, and you scribble the name of your callback function on
-it, handing the Deferred back to your decorated method. (You can also
-keep a copy of it (i.e., a reference to the object) around if you
-like, for example to add other callbacks.)
-
-Once you've attached your callback function to the Deferred result,
-you can go on with your business, knowing that SQLAlchemy will be
-cranking away behind the scenes (in a transaction-specific thread) to
-obtain a result for you.  When the result is finally ready, your
-transact-decorated method will look at the Deferred, see the note you
-scribbled on it (Pls call this function with the result. Thx!), and
-give your function a call with the list of rows. It will supply the
-callback with the list as the function's argument.
-
-You can also do some asynchronous database operations on a higher
-level. For example, you can maintain a store of Python objects, with
-each object accessible (with deferred results) via a unique key. If
-that sounds like what a dictionary does, it should! The ''sAsync''
-package also provides a dictionary-like object with
-database-persistent items that you can access in an asynchronous
-fashion.
+Start with L{database.AccessBroker}.
 """
 
 def engine(url, **kw):

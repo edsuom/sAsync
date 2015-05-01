@@ -1,35 +1,28 @@
+# sAsync:
+# An enhancement to the SQLAlchemy package that provides persistent
+# item-value stores, arrays, and dictionaries, and an access broker for
+# conveniently managing database access, table setup, and
+# transactions. Everything can be run in an asynchronous fashion using
+# the Twisted framework and its deferred processing capabilities.
+#
+# Copyright (C) 2006, 2015 by Edwin A. Suominen, http://edsuom.com/sAsync
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 """
-Asynchronous database transactions via SQLAlchemy.
-
-
-About sAsync
-============
-B{sAsync} is an enhancement to the SQLAlchemy package that provides
-persistent item-value stores, arrays, and dictionaries, and an access
-broker for conveniently managing database access, table setup, and
-transactions. Everything can be run in an asynchronous fashion using
-the Twisted framework and its deferred processing capabilities.
-
-Copyright (C) 2006-2007, 2015 by Edwin A. Suominen,
-U{http://edsuom.com/sAsync}
-
-
-Licensing
-=========
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see U{http://www.gnu.org/licenses/}.
-
+Asynchronous database transactions via C{SQLAlchemy} and
+C{Twisted}. You will surely have a subclass of L{AccessBroker}.
 """
 
 import inspect, logging
@@ -46,16 +39,6 @@ from asynqueue import iteration
 
 import errors, queue
 from selex import SelectAndResultHolder
-
-
-def nextFromRP(rp):
-    try:
-        row = rp.fetchone()
-    except:
-        row = []
-    if row:
-        return row
-    raise StopIteration
 
 def transaction(self, func, *t_args, **t_kw):
     """
@@ -76,8 +59,23 @@ def transaction(self, func, *t_args, **t_kw):
     else:
         trans.commit()
         return result
+
+def nextFromRP(rp):
+    """
+    I{Transaction magic.}
+    """
+    try:
+        row = rp.fetchone()
+    except:
+        row = []
+    if row:
+        return row
+    raise StopIteration
     
 def isNested(self):
+    """
+    I{Transaction magic.}
+    """
     firstCode = None
     frame = inspect.currentframe()
     while True:
@@ -101,12 +99,13 @@ def isNested(self):
 
 def transact(f):
     """
+    Transaction decorator.
+    
     Use this function as a decorator to wrap the supplied method I{f}
     of L{AccessBroker} in a transaction that runs C{f(*args, **kw)} in
     its own transaction.
 
-    Immediately returns an instance of
-    L{twisted.internet.defer.Deferred} that will eventually have its
+    Immediately returns a C{Deferred} that will eventually have its
     callback called with the result of the transaction. Inspired by
     and largely copied from Valentino Volonghi's C{makeTransactWith}
     code.
@@ -314,11 +313,19 @@ class AccessBroker(object):
 
     @defer.inlineCallbacks
     def waitUntilRunning(self):
+        """
+        Returns a C{Deferred} that fires when the broker is running and
+        ready for transactions.
+        """
         if not self.running:
             yield self.lock.acquire()
             self.lock.release()
 
     def callWhenRunning(self, f, *args, **kw):
+        """
+        Calls the I{f-args-kw} combo when the broker is running and ready
+        for transactions.
+        """
         return self.waitUntilRunning().addCallback(lambda _: f(*args, **kw))
 
     @defer.inlineCallbacks
@@ -431,13 +438,13 @@ class AccessBroker(object):
     def handleResult(self, result, consumer=None, conn=None, asList=False):
         """
         Handles the result of a transaction or connection.execute. If it's
-        a ResultsProxy and possibly an implementor of IConsumer,
+        a C{ResultsProxy} and possibly an implementor of C{IConsumer},
         returned a (deferred) instance of Deferator or couples your
         consumer to an IterationProducer.
 
         You can supply a connection to be closed after iterations are
-        done with the keyword 'conn'. With the keyword 'asList', you
-        can force the rows of a ResultProxy to be fetched (in my
+        done with the keyword 'conn'. With the keyword I{asList}, you
+        can force the rows of a C{ResultProxy} to be fetched (in my
         thread) and returned as a (deferred) list of rows.
         """
         def close(null):
@@ -483,18 +490,18 @@ class AccessBroker(object):
         Polymorphic method for working with C{select} instances within a
         cached selection subcontext.
 
-        - When called with a single argument (the select object's name
-          as a string) and no keywords, this method indicates if the
-          named select object already exists and sets its selection
-          subcontext to I{name}.
-            
-        - With multiple arguments or any keywords, the method acts
-          like a call to C{sqlalchemy.select(...).compile()}, except
-          that nothing is returned. Instead, the resulting select
-          object is stored in the current selection subcontext.
-            
-        - With no arguments or keywords, the method returns the select
-          object for the current selection subcontext.
+          - When called with a single argument (the select object's name
+            as a string) and no keywords, this method indicates if the
+            named select object already exists and sets its selection
+            subcontext to I{name}.
+              
+          - With multiple arguments or any keywords, the method acts
+            like a call to C{sqlalchemy.select(...).compile()}, except
+            that nothing is returned. Instead, the resulting select
+            object is stored in the current selection subcontext.
+              
+          - With no arguments or keywords, the method returns the select
+            object for the current selection subcontext.
 
         Call from inside a transaction.
 
@@ -516,9 +523,10 @@ class AccessBroker(object):
 
     def select(self, *args, **kw):
         """
-        Just returns an SQLAlchemy select object. You do everything else.
+        Just returns an C{SQLAlchemy} select object. You do everything
+        else.
 
-        This is an immediate result, not a deferred.
+        This is an immediate result, not a C{Deferred}.
         """
         return SA.select(*args, **kw)
 
@@ -537,13 +545,13 @@ class AccessBroker(object):
         to execute the connection with it. Supply the name of a
         resultsproxy method (and any of its args) to the call to get
         the result instead of the rp. Do all of this within the
-        context of the placeholder:
+        context of the placeholder::
 
-        with <me>.selex(<table>.c.foo) as sh:
-            sh.where(<table>.c.bar == "correct")
-        for dRow in sh():
-            row = yield dRow
-            ...
+          with <me>.selex(<table>.c.foo) as sh:
+              sh.where(<table>.c.bar == "correct")
+          for dRow in sh():
+              row = yield dRow
+              ...
 
         You can call this outside of a transaction and get a deferred
         result from calling the placeholder object. For such usage,
@@ -559,32 +567,34 @@ class AccessBroker(object):
     def selectorator(self, selectObj, consumer=None, de=None):
         """
         When called with a select object that results in an iterable
-        ResultProxy when executed, returns a deferred that fires with
-        a Deferator that can be iterated over deferreds, each of which
-        fires with a successive row of the select's ResultProxy.
+        C{ResultProxy} when executed, returns a deferred that fires
+        with a C{Deferator} that can be iterated over deferreds, each
+        of which fires with a successive row of the select's
+        C{ResultProxy}.
 
-        If you supply an IConsumer with the 'consumer' keyword, I will
-        couple an L{iteration.IterationProducer} to your consumer and
-        run it. The returned deferred will fire (with a reference to
-        your consumer) when the iterations are done, but you don't
-        need to wait for that before doing another transaction.
+        If you supply an C{IConsumer} with the I{consumer} keyword, I
+        will couple an C{iteration.IterationProducer} to your consumer
+        and run it. The returned C{Deferred} will fire (with a
+        reference to your consumer) when the iterations are done, but
+        you don't need to wait for that before doing another
+        transaction.
 
-        If you supply a deferred via the 'de' keyword, it will be
+        If you supply a C{Deferred} via the I{de} keyword, it will be
         fired (unless already fired for some reason) with C{None} when
         the select object has been executed, but before iterations
         have begun.
         
-        Call directly, *not* from inside a transaction.
+        Call directly, *not* from inside a transaction::
 
-        dr = yield <me>.selectorator(<select>)
-        for d in dr:
-            row = yield d
-            <proceed with row>
-
-        d = <me>.selectorator(<select>, <consumer>)
-        <do other stuff>
-        consumer = yield d
-        consumer.revealMagnificentSummary()
+          dr = yield <me>.selectorator(<select>)
+          for d in dr:
+              row = yield d
+              <proceed with row>
+  
+          d = <me>.selectorator(<select>, <consumer>)
+          <do other stuff>
+          consumer = yield d
+          consumer.revealMagnificentSummary()
         """
         yield self.waitUntilRunning()
         # A new connection just for this iteration, so that other
@@ -601,9 +611,9 @@ class AccessBroker(object):
     @transact
     def execute(self, *args, **kw):
         """
-        Does a connection.execute(*args, **kw) as a transaction, in my
+        Does a C{connection.execute(*args, **kw)} as a transaction, in my
         thread with my current connection, with all the usual handling
-        of the ResultProxy.
+        of the C{ResultProxy}.
         """
         return self.connection.execute(*args, **kw)
 
@@ -618,8 +628,8 @@ class AccessBroker(object):
     def deferToQueue(self, func, *args, **kw):
         """
         Dispatches I{callable(*args, **kw)} as a task via the like-named
-        method of my asynchronous queue, returning a deferred to its
-        eventual result.
+        method of my asynchronous queue, returning a C{Deferred} to
+        its eventual result.
 
         Scheduling of the call is impacted by the I{niceness} keyword
         that can be included in I{**kw}. As with UNIX niceness, the
