@@ -36,6 +36,8 @@ def engine(url, **kw):
     engine that will be used as a default for all instances of
     L{AccessBroker} and all persistent objects based thereon.
 
+    @see: U{http://docs.sqlalchemy.org/en/rel_1_0/core/engines.html}.
+
     @param url: An RFC-1738 url to a database connection.
           
     @keyword strategy: The Strategy describes the general
