@@ -60,16 +60,19 @@ def transaction(self, func, *t_args, **t_kw):
         trans.commit()
         return result
 
-def nextFromRP(rp):
+def nextFromRP(rp, N=1):
     """
     I{Transaction magic.}
     """
     try:
-        row = rp.fetchone()
+        if N == 1:
+            result = rp.fetchone()
+        else:
+            result = rp.fetchmany(N)
     except:
-        row = []
-    if row:
-        return row
+        result = []
+    if result:
+        return result
     raise StopIteration
     
 def isNested(self):
@@ -441,7 +444,7 @@ class AccessBroker(object):
             yield self.qFactory.kill(self.q)
 
     @defer.inlineCallbacks
-    def handleResult(self, result, consumer=None, conn=None, asList=False):
+    def handleResult(self, result, consumer=None, conn=None, asList=False, N=1):
         """
         Handles the result of a transaction or connection.execute. If it's
         a C{ResultsProxy} and possibly an implementor of C{IConsumer},
@@ -467,7 +470,8 @@ class AccessBroker(object):
                 result = yield self.q.deferToThread(result.fetchall)
             else:
                 pf = iteration.Prefetcherator(repr(result))
-                ok = yield pf.setup(self.q.deferToThread, nextFromRP, result)
+                ok = yield pf.setup(
+                    self.q.deferToThread, nextFromRP, result, N)
                 if ok:
                     dr = iteration.Deferator(pf)
                     dr.addCallback(close)
@@ -570,7 +574,7 @@ class AccessBroker(object):
         sh.close()
 
     @defer.inlineCallbacks
-    def selectorator(self, selectObj, consumer=None, de=None):
+    def selectorator(self, selectObj, consumer=None, de=None, N=1):
         """
         When called with a select object that results in an iterable
         C{ResultProxy} when executed, returns a deferred that fires
@@ -589,6 +593,10 @@ class AccessBroker(object):
         fired (unless already fired for some reason) with C{None} when
         the select object has been executed, but before iterations
         have begun.
+
+        If you want multiple rows produced at once using the
+        C{fetchmany} method of the C{ResultProxy}, set I{N} to the
+        number of rows you want at a time.
         
         Call directly, *not* from inside a transaction::
 
@@ -611,7 +619,7 @@ class AccessBroker(object):
         if isinstance(de, defer.Deferred) and not de.called:
             de.callback(None)
         result = yield self.handleResult(
-            rp, consumer=consumer, conn=connection)
+            rp, consumer=consumer, conn=connection, N=N)
         defer.returnValue(result)
 
     @transact
