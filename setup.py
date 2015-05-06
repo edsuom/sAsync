@@ -26,8 +26,6 @@ NAME = "sAsync"
 
 
 ### Imports and support
-import ez_setup
-ez_setup.use_setuptools()
 from setuptools import setup
 
 
@@ -36,12 +34,13 @@ required = ['SQLAlchemy>=0.5', 'AsynQueue>=0.8.1']
 
 
 ### Define setup options
-kw = {'version':'0.8.1',
+kw = {'version':'0.8.2',
       'license':'GPL',
       'platforms':'OS Independent',
 
       'url':"http://edsuom.com/{}.html".format(NAME),
       'author':'Edwin A. Suominen',
+      'author_email':"valueprivacy-foss@yahoo.com",
       'maintainer':'Edwin A. Suominen',
       
       'install_requires':required,
@@ -57,12 +56,18 @@ kw['keywords'] = [
 
 kw['classifiers'] = [
     'Development Status :: 5 - Production/Stable',
+    
     'Intended Audience :: Developers',
-    'License :: OSI Approved :: GNU General Public License (GPL)',
+
+    'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
     'Operating System :: OS Independent',
+    'Framework :: Twisted',
+
     'Programming Language :: Python',
     'Programming Language :: SQL',
+
     'Topic :: Database',
+    'Topic :: Database :: Front-Ends',
     'Topic :: Software Development :: Libraries :: Python Modules',
     ]
 
