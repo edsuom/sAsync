@@ -35,7 +35,7 @@ import sqlalchemy as SA
 from sqlalchemy import pool
 
 import asynqueue
-from asynqueue import iteration
+from asynqueue import iteration, threads
 
 import errors, queue
 from selex import SelectAndResultHolder
@@ -638,7 +638,45 @@ class AccessBroker(object):
         """
         kw['asList'] = True
         return self.execute(SA.text(sqlText), **kw)
-        
+
+    @defer.inlineCallbacks
+    def produceRows(self, f, iterator, table, colName, **kw):
+        """
+        Calls the single-argument function I{f} repeatedly, with each
+        value yielded from the supplied I{iterator}, to produce values
+        for new rows in the specified I{table}. The named column
+        I{colName} will have that value set for each row, in
+        order. Other column will be set to values that are constant
+        across the rows, as specified via keywords.
+
+        The function I{f} must not block, but it may return either an
+        immediate or deferred result. It doesn't matter if some calls
+        to I{f} take longer than others; the rows will be written in
+        the same order as the B{input} values to I{f} are yielded from
+        I{iterator}.
+
+        B{Warning:} Needs unit testing.
+
+        @return: A C{Deferred} that fires with a list of the primary
+          key values for each row, in the same order as I{iterator},
+          when all the values have been generated and written.
+        """
+        def insert(i):
+            pkList = []
+            with self.connection.begin():
+                for value in i:
+                    kw[colName] = value
+                    rp = table.insert().execute(**kw)
+                    pkList.append(rp.inserted_primary_key)
+            return pkList
+
+        p = threads.OrderedItemProducer(self.q)
+        yield p.start(insert)
+        for x in iterator:
+            p.produceItem(f, x)
+        result = yield p.stop()
+        defer.returnValue(result)
+    
     def deferToQueue(self, func, *args, **kw):
         """
         Dispatches I{callable(*args, **kw)} as a task via the like-named
