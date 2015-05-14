@@ -672,7 +672,7 @@ class AccessBroker(object):
                     pkList.append(rp.inserted_primary_key)
             return pkList
 
-        p = threads.OrderedItemProducer(self.q)
+        p = threads.OrderedItemProducer()
         yield p.start(insert)
         for x in iterator:
             p.produceItem(f, x)

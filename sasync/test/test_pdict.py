@@ -41,8 +41,7 @@ ID = 341
 VERBOSE = False
 
 
-db = '/tmp/pdict.db'
-URL = "sqlite:///%s" % db
+URL = "sqlite://"
 Factory.setGlobal(URL)
 
 
@@ -346,14 +345,14 @@ class TestPdictNormalMain(PdictNormal, TestCase):
         d.addCallback(self.failUnlessEqual, {})
         return d
 
+    @defer.inlineCallbacks
     def test_setdefaultSet(self):
         self.p['a'] = 1
-        self.p.writeTracker.put(self.p.setdefault('a', 2))
-
-        d = self.p.deferToWrites()
-        d.addCallback(lambda _: self.p.items())
-        d.addCallback(self.failUnlessEqual, [('a',1)])
-        return d
+        value = yield self.p.setdefault('a', 2)
+        self.assertEqual(value, 1)
+        yield self.p.deferToWrites()
+        items = yield self.p.items()
+        self.failUnlessEqual(items, [('a',1)])
 
     def test_setAndGetComplex(self):
         self.p['a'] = 1

@@ -96,15 +96,14 @@ class Transactor(AccessBroker):
                 SA.and_(items.c.group_id == self.groupID,
                         items.c.name == SA.bindparam('name')))
         row = self.s().execute(name=name).fetchone()
-        if not row:
-            return Missing(self.groupID, name)
-        else:
+        if row:
             return row['value']
+        return Missing(self.groupID, name)
     
     @transact
     def loadAll(self):
         """
-        Load all my items, returing a name:value dict
+        Load all my items, returing a C{name:value} dict
         """
         items = self.sasync_items
         if not self.s('load_all'):
@@ -162,19 +161,22 @@ class Transactor(AccessBroker):
 class Items(object):
     """
     I provide a public interface for non-blocking database access to
-    persistently stored name:value items within a uniquely-identified group,
-    e.g., for a persistent dictionary using L{pdict.PersistentDict}.
+    persistently stored name:value items within a uniquely identified
+    group, e.g., for a persistent dictionary using
+    L{pdict.PersistentDict}.
 
-    Before you use any instance of me, you must specify the parameters for
-    creating an SQLAlchemy database engine. A single argument is used, which
-    specifies a connection to a database via an RFC-1738 url. In addition, the
-    following keyword options can be employed, which are listed in the API docs
-    for L{sasync} and L{database.AccessBroker}.
+    Before you use any instance of me, you must specify the parameters
+    for creating an C{SQLAlchemy} database engine. A single argument
+    is used, which specifies a connection to a database via an
+    RFC-1738 url. In addition, the following keyword options can be
+    employed, which are listed in the API docs for L{sasync} and
+    L{database.AccessBroker}.
 
     You can set an engine globally, for all instances of me via the
-    L{sasync.engine} package-level function, or via the L{AccessBroker.engine}
-    class method. Alternatively, you can specify an engine for one particular
-    instance by supplying the parameters to my constructor.
+    L{sasync.engine} package-level function, or via the
+    L{AccessBroker.engine} class method. Alternatively, you can
+    specify an engine for one particular instance by supplying the
+    parameters to my constructor.
     """
     def __init__(self, ID, *url, **kw):
         """

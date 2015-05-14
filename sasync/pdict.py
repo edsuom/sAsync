@@ -118,24 +118,23 @@ class PersistentDictBase(MutableMapping, object):
         """
         return self.writeTracker.deferToAll().addCallback(
             lambda _: self.i.shutdown())
-    
+
+    @defer.inlineCallbacks
     def loadAll(self, *null):
         """
         Loads all items from the database, setting my in-memory dict and key
         cache accordingly.
         """
-        def loaded(items):
-            self.data.clear()
-            self.data.update(items)
-            self.keyCache = dict.fromkeys(items.keys(), True)
-            return self.data
-
-        return self.i.loadAll().addCallback(loaded)
+        yield self.deferToWrites()
+        items = yield self.i.loadAll()
+        self.data.clear()
+        self.data.update(items)
+        self.keyCache = dict.fromkeys(items.keys(), True)
+        defer.returnValue(self.data)
 
     def deferToWrites(self, lastOnly=False):
         """
         @see: L{DeferredTracker.deferToAll}
-        
         """
         if lastOnly:
             return self.writeTracker.deferToLast()
@@ -195,10 +194,15 @@ class PersistentDict(PersistentDictBase):
         def valueLoaded(loadedValue):
             if isinstance(loadedValue, items.Missing):
                 # Item isn't in the database, so insert it
-                return self.i.insert(name, value)
+                d = self.i.insert(name, value)
             else:
                 # Update current value of item in the database
-                return self.i.update(name, value)
+                d = self.i.update(name, value)
+            d.addCallback(done)
+            return d
+        def done(x):
+            d2.callback(None)
+            return x
 
         oldValue = self.data.get(name, None)
         self.data[name] = value
@@ -211,10 +215,12 @@ class PersistentDict(PersistentDictBase):
                 # If it hasn't been loaded yet, in preload mode, it ain't there
                 d = self.i.insert(name, value)
             else:
-                # Not in preload mode, so it may be in the database but not yet
-                # loaded
-                d = self.i.load(name)
-                d.addCallback(valueLoaded)
+                # Not in preload mode, so it may be in the database
+                # but not yet loaded. Note that we need to also track
+                # a Deferred for whichever transaction is done next.
+                d2 = defer.Deferred()
+                self.writeTracker.put(d2)
+                d = self.i.load(name).addCallback(valueLoaded)
         else:
             # There's already a value in the in-memory dictionary, update it
             d = self.i.update(name, value)
@@ -412,9 +418,7 @@ class PersistentDict(PersistentDictBase):
             return value
         if key in self.data:
             return defer.succeed(self.data[key])
-        d = self.i.load(key)
-        d.addCallback(gotItem)
-        return d
+        return self.i.load(key).addCallback(gotItem)
     
     def copy(self):
         """

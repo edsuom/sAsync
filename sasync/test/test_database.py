@@ -26,7 +26,7 @@
 Unit tests for sasync.database
 """
 
-import logging
+import logging, random
 from twisted.internet import defer
 
 import sqlalchemy as SA
@@ -438,5 +438,24 @@ class TestTransactions(BrokerTestCase):
         d = self.broker.nestedTransaction(1)
         d.addCallback(self.failUnlessEqual, 3)
         return d
-        
+
+    @defer.inlineCallbacks
+    def test_produceRows(self):
+        def initialInstead(name):
+            delay = random.uniform(0, 0.2)
+            return deferToDelay(delay).addCallback(
+                lambda _: "{}.".format(name[0].upper()))
+        duggars = [
+            'Alice', 'bob', 'Charlie', 'david',
+            'Engelbert', 'Francis', 'george', 'Hortense',
+            'Ivan', 'Jim', 'kate', 'Lolita',]
+        IDs = yield self.broker.produceRows(
+            initialInstead, duggars,
+            self.broker.people, 'name_first', name_last='Duggar')
+        N = len(duggars)
+        self.msg("Wrote {:d} new rows, got IDs: {}", N, IDs)
+        self.assertEqual([int(x[0]) for x in IDs], range(6, N+6))
+        names = yield self.broker.familyMembers('Duggar')
+        for k, letter in enumerate("ABCDEFGHIJKL"):
+            self.assertEqual(names[k], "{}.".format(letter))
         
