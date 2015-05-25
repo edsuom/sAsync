@@ -41,7 +41,7 @@ class SelectAndResultHolder(object):
 
     Provide my constructor with a reference to the
     L{database.AccessBroker} and the args, plus any keywords you want
-    added to the L{call}.
+    added to the call.
     
     Everything is cleaned up via my L{close} method after the "loop"
     ends.

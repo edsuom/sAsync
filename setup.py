@@ -32,12 +32,12 @@ from setuptools import setup
 
 
 ### Define requirements
-required = ['SQLAlchemy>=0.5', 'AsynQueue>=0.8.1']
+required = ['SQLAlchemy>=0.5', 'AsynQueue>=0.9.0']
 
 
 ### Define setup options
-kw = {'version':'0.8.2',
-      'license':'GPL',
+kw = {'version':'0.9.1',
+      'license':'Apache License (2.0)',
       'platforms':'OS Independent',
 
       'url':"http://edsuom.com/{}.html".format(NAME),
@@ -54,14 +54,14 @@ kw = {'version':'0.8.2',
 kw['keywords'] = [
     'SQL', 'SQLAlchemy', 'Twisted', 'asynchronous',
     'persist', 'persistence', 'persistent',
-    'database', 'graph']
+    'database']
 
 kw['classifiers'] = [
     'Development Status :: 5 - Production/Stable',
     
     'Intended Audience :: Developers',
 
-    'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
+    'License :: OSI Approved :: Apache Software License',
     'Operating System :: OS Independent',
     'Framework :: Twisted',
 
@@ -74,16 +74,16 @@ kw['classifiers'] = [
     ]
 
 kw['description'] = " ".join("""
-SQLAlchemy done Asynchronously, with a convenient transacting database access
-broker and persistent dictionaries, arrays, and graphs.
+SQLAlchemy done Asynchronously, with a convenient transacting database
+access broker and persistent dictionaries, and arrays.
 """.split("\n"))
 
 kw['long_description'] = " ".join("""
 An enhancement to the SQLAlchemy package that provides asynchronous,
-deferred-result access via the Twisted framework and an access broker that
-conveniently managing database access, table setup, and transactions. Included
-are modules for implementing persistent dictionaries, three-dimensional arrays,
-and graph objects.
+deferred-result access via the Twisted framework and an access broker
+that conveniently manages database access, table setup, and
+transactions. Included are modules for implementing persistent
+dictionaries and three-dimensional arrays.
 """.split("\n"))
 
 ### Finally, run the setup

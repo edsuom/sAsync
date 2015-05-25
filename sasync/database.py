@@ -128,13 +128,14 @@ def transact(f):
       even lower than with niceness = 20.
 
     @keyword consumer: Set this to a consumer object (must implement
-      the L{twisted.interfaces.IConsumer} interface) and the
-      L{SA.ResultProxy} will write its rows to it in Twisted
-      fashion. The returned deferred will fire when all rows have been
-      written.
+      the C{twisted.interfaces.IConsumer} interface) and the
+      C{SA.ResultProxy} will write its rows to it in Twisted
+      fashion. The returned C{Deferred} will fire when all rows have
+      been written.
 
     @keyword raw: Set C{True} to have the transaction result returned
-      in its original form even if it's a RowProxy or other iterator.
+      in its original form even if it's a C{RowProxy} or other
+      iterator.
     """
     def substituteFunction(self, *args, **kw):
         """
@@ -142,10 +143,10 @@ def transact(f):
         returns a deferred to its result when it is eventually run.
 
         If the transaction resulted in a C{ResultProxy} object, the
-        C{Deferred} fires with an L{asynqueue.iteration.Deferator},
+        C{Deferred} fires with an C{asynqueue.iteration.Deferator},
         unless you've supplied an IConsumer with the I{consumer}
         keyword. Then the deferred result is an
-        L{asynqueue.iteration.IterationProducer} coupled to your
+        C{asynqueue.iteration.IterationProducer} coupled to your
         consumer.
 
         This function will be given the same name as the original

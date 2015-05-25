@@ -168,13 +168,12 @@ class Items(object):
     Before you use any instance of me, you must specify the parameters
     for creating an C{SQLAlchemy} database engine. A single argument
     is used, which specifies a connection to a database via an
-    RFC-1738 url. In addition, the following keyword options can be
-    employed, which are listed in the API docs for L{sasync} and
-    L{database.AccessBroker}.
+    RFC-1738 url. In addition, the keyword options can be
+    employed that are listed in the API docs for L{sasync}.
 
-    You can set an engine globally, for all instances of me via the
+    You can set an engine globally, for all instances of me, via the
     L{sasync.engine} package-level function, or via the
-    L{AccessBroker.engine} class method. Alternatively, you can
+    L{queue.Factory.setGlobal} class method. Alternatively, you can
     specify an engine for one particular instance by supplying the
     parameters to my constructor.
     """

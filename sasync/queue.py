@@ -39,7 +39,7 @@ from sqlalchemy import pool
 
 class Factory(object):
     """
-    I generate L{asynqueue.ThreadQueue} objects, a unique one for each
+    I generate C{asynqueue.ThreadQueue} objects, a unique one for each
     call to me with a unique url-kw combination.
     """
     globalQueue = None
@@ -50,7 +50,7 @@ class Factory(object):
     @staticmethod
     def newQueue(url, **kw):
         """
-        Returns a C{Deferred} that fires with a new L{asynqueue.ThreadQueue}
+        Returns a C{Deferred} that fires with a new C{asynqueue.ThreadQueue}
         that has a new SQLAlchemy engine attached as its I{engine}
         attribute.
         """
@@ -80,8 +80,9 @@ class Factory(object):
         Returns a deferred reference to the global queue, assuming one has
         been defined with L{setGlobal}.
 
-        Calling this method, or L{get} without a url argument, is the
-        only approved way to get a reference to the global queue.
+        Calling this method, or calling an instance of me without a
+        url argument, is the only approved way to get a reference to
+        the global queue.
         """
         if cls.globalQueue:
             return defer.succeed(cls.globalQueue)
@@ -129,7 +130,7 @@ class Factory(object):
 
     def __call__(self, *url, **kw):
         """
-        Returns a C{Deferred} that fires with an L{asynqueue.ThreadQueue}
+        Returns a C{Deferred} that fires with an C{asynqueue.ThreadQueue}
         that has an C{SQLAlchemy} engine attached to it, constructed
         with the supplied url and any keywords. The engine can be
         referenced via the queue's I{engine} attribute.
@@ -138,8 +139,8 @@ class Factory(object):
         parameters, that same one is returned. Otherwise, a new one is
         constructed and saved for a repeat call.
 
-        If there is no url argument, the global default queue will be
-        returned. There must be one for that to work, of course.
+        If there is no I{url} argument, the global default queue will
+        be returned. There must be one for that to work, of course.
 
         Separate instances of me can have separate queues for the
         exact same url-kw parameters. But all instances share the same

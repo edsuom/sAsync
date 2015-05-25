@@ -49,11 +49,11 @@ class PersistentDictBase(MutableMapping, object):
     used, which specifies a connection to a database via an RFC-1738
     url. In addition, the following keyword options can be employed,
     which are listed in the API docs for L{sasync} and
-    L{sasync.database.AccessBroker}.
+    L{database.AccessBroker}.
 
     You can set an engine globally, for all instances of me, via the
     L{sasync.engine} package-level function, or via the
-    L{AccessBroker.engine} class method. Alternatively, you can
+    L{queue.Factory.setGlobal} class method. Alternatively, you can
     specify an engine for one particular instance by supplying the
     parameters to my constructor.
     
@@ -134,7 +134,7 @@ class PersistentDictBase(MutableMapping, object):
 
     def deferToWrites(self, lastOnly=False):
         """
-        @see: L{DeferredTracker.deferToAll}
+        @see: C{asynqueue.DeferredTracker}
         """
         if lastOnly:
             return self.writeTracker.deferToLast()
