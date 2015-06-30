@@ -36,7 +36,7 @@ required = ['SQLAlchemy>=0.5', 'AsynQueue>=0.9.0']
 
 
 ### Define setup options
-kw = {'version':'0.9.1',
+kw = {'version':'0.9.2',
       'license':'Apache License (2.0)',
       'platforms':'OS Independent',
 

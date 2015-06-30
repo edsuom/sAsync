@@ -421,8 +421,15 @@ class AccessBroker(object):
     def shutdown(self, *null):
         """
         Shuts down my database transaction functionality and threaded task
-        queue, returning a deferred that fires when all queued tasks
-        are done and the shutdown is complete.
+        queue, returning a C{Deferred} that fires when all queued
+        tasks are done and the shutdown is complete.
+
+        If you call this before I have even started up for some
+        reason, the C{Deferred} will not fire until my startup
+        sequence has completed.
+
+        Repeated calls after I've already shutdown will be rewarded
+        with a C{Deferred} that fires immediately.
         """
         def closeConnection():
             conn = getattr(self, 'connection', None)
@@ -435,6 +442,8 @@ class AccessBroker(object):
                 conn.close()
 
         if self.running:
+            # Regular shutdown, called after already running
+            self._haveShutdown = True
             self.running = False
             if self.q.isRunning():
                 with self.lock.context() as d:
@@ -445,6 +454,11 @@ class AccessBroker(object):
                     closeConnection()
                     # yield self.q.call(closeConnection)
             yield self.qFactory.kill(self.q)
+        elif not getattr(self, '_haveShutdown', False):
+            # Shutdown called before I have even started running, need
+            # to wait for startup before initiating shutdown
+            yield self.waitUntilRunning()
+            yield self.shutdown()
 
     @defer.inlineCallbacks
     def handleResult(self, result, consumer=None, conn=None, asList=False, N=1):

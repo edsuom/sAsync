@@ -53,6 +53,12 @@ class FakeConnection:
         self.wasClosed = True
 
 
+class TestImmediateShutdown(TestCase):
+    def test_shutdown(self):
+        broker = PeopleBroker(DB_URL)
+        return broker.shutdown()
+
+        
 class BrokerTestCase(TestCase):
     verbose = False
     spew = False
