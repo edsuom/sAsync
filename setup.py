@@ -44,7 +44,7 @@ kw = {'version':'0.9.2',
       'author':'Edwin A. Suominen',
       'author_email':"valueprivacy-foss@yahoo.com",
       'maintainer':'Edwin A. Suominen',
-      
+      'maintainer_email':"valueprivacy-foss@yahoo.com",
       'install_requires':required,
       'packages':['sasync'],
       
