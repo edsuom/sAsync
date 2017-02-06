@@ -34,7 +34,7 @@ group, e.g., for a persistent dictionary using L{pdict.PersistentDict}.
 from twisted.internet import defer
 import sqlalchemy as SA
 
-from database import transact, AccessBroker
+from sasync.database import transact, AccessBroker
 
 
 NICENESS_WRITE = 6

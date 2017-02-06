@@ -31,7 +31,8 @@ from twisted.internet import defer, reactor
 import sqlalchemy as SA
 
 from asynqueue import DeferredTracker
-from database import transact, AccessBroker
+
+from sasync.database import transact, AccessBroker
 
 
 NICENESS_WRITE = 6

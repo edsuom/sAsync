@@ -31,10 +31,10 @@ import logging
 
 from twisted.internet import defer
 
-import asynqueue
-
 import sqlalchemy as SA
 from sqlalchemy import pool
+
+import asynqueue
 
 
 class Factory(object):

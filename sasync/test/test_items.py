@@ -32,7 +32,7 @@ from sqlalchemy import *
 
 from sasync.database import transact, AccessBroker
 import sasync.items as items
-from testbase import MockThing, TestCase
+from sasync.test.testbase import MockThing, TestCase
 
 
 GROUP_ID = 123

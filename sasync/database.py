@@ -39,8 +39,9 @@ from sqlalchemy import pool
 import asynqueue
 from asynqueue import iteration, threads
 
-import errors, queue
-from selex import SelectAndResultHolder
+from sasync import errors, queue
+from sasync.selex import SelectAndResultHolder
+
 
 def transaction(self, func, *t_args, **t_kw):
     """

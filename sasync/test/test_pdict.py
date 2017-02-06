@@ -30,11 +30,11 @@ from twisted.internet import defer
 
 import sqlalchemy as SA
 
-from queue import Factory
-from pdict import PersistentDict
-from parray import PersistentArray
+from sasync.queue import Factory
+from sasync.pdict import PersistentDict
+from sasync.parray import PersistentArray
 
-from testbase import deferToDelay, TestCase
+from sasync.test.testbase import deferToDelay, TestCase
 
 
 ID = 341

@@ -35,8 +35,8 @@ from twisted.internet import defer
 
 from asynqueue import DeferredTracker
 
-import items
-from errors import AsyncError
+from sasync import items
+from sasync.errors import AsyncError
 
 
 class PersistentDictBase(MutableMapping, object):
