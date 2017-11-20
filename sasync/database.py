@@ -225,6 +225,39 @@ def transact(f):
     return substituteFunction
 
 
+def wait(f):
+    """
+    Decorator to wait for any C{Deferred} that has been returned by a
+    method of L{AccessBroker} to fire before proceeding with the shutdown
+    method of L{AccessBroker}.
+
+    Sometimes calls to methods you define to an L{AccessBroker}
+    subclass will still be pending when you call for a shutdown. If
+    those pending calls rely on the task queue to finish, you can wait
+    for them before the L{AccessBroker.shutdown} method proceeds by
+    decorating the method with this function.
+    """
+    def substituteFunction(self, *args, **kw):
+        """
+        Runs the original function and, if the result is a C{Deferred},
+        puts the C{Deferred} into a C{DeferredTracker} so that the
+        shutdown method can wait for the result before initiating a
+        shutdown of the task queue.
+
+        This function will be given the same name as the original
+        function so that it can be asked to masquerade as the original
+        function. The original function should be a method of a
+        L{AccessBroker} subclass instance.
+        """
+        result = f(self, *args, **kw)
+        if isinstance(result, defer.Deferred):
+            self.dt.put(result)
+        return result
+
+    substituteFunction.func_name = f.func_name
+    return substituteFunction
+
+
 class AccessBroker(object):
     """
     I manage asynchronous access to a database.
@@ -303,11 +336,14 @@ class AccessBroker(object):
         self.selects = {}
         self.rowProxies = []
         self.running = False
-        # The deferred lock lets us easily wait until setup is done
+        # The Deferred lock lets me easily wait until setup is done
         # and avoids running multiple transactions at once when they
         # aren't wanted.
         self.lock = asynqueue.DeferredLock()
         self.lock.acquire().addCallback(startup)
+        # The Deferred tracker lets me wait for any pending Deferreds
+        # to fire before shutting down my thread queue
+        self.dt = asynqueue.DeferredTracker()
 
     @property
     def singleton(self):
@@ -431,6 +467,13 @@ class AccessBroker(object):
 
         Repeated calls after I've already shutdown will be rewarded
         with a C{Deferred} that fires immediately.
+
+        A method of a subclass of me that returns a C{Deferred}
+        (rather than just being decorated with the L{transact}
+        function) could possibly have some database processing pending
+        when I am told to shutdown. To ensure that I wait for such a
+        C{Deferred} to fire before proceeding to shut down my thread
+        queue, decorate the method with the L{wait} function.
         """
         def closeConnection():
             conn = getattr(self, 'connection', None)
@@ -442,6 +485,7 @@ class AccessBroker(object):
                     conn = conn.connection
                 conn.close()
 
+        yield self.dt.deferToAll()
         if self.running:
             # Regular shutdown, called after already running
             self._haveShutdown = True
@@ -449,24 +493,27 @@ class AccessBroker(object):
             if self.q.isRunning():
                 with self.lock.context() as d:
                     yield d
-                    # Calling this via the queue is a problem if the
-                    # queue is shared and has been shut down. But
-                    # calling it in the main thread seems to work
-                    closeConnection()
-                    # yield self.q.call(closeConnection)
+            print "DSD-1a"
             yield self.qFactory.kill(self.q)
+            print "DSD-1b"
+            # Calling this via the queue is a problem if the
+            # queue is shared and has been shut down. But
+            # calling it in the main thread seems to work
+            closeConnection()
+            #yield self.q.call(closeConnection)
         elif not getattr(self, '_haveShutdown', False):
             # Shutdown called before I have even started running, need
             # to wait for startup before initiating shutdown
             yield self.waitUntilRunning()
             yield self.shutdown()
 
+    @wait
     @defer.inlineCallbacks
     def handleResult(self, result, consumer=None, conn=None, asList=False, N=1):
         """
         Handles the result of a transaction or connection.execute. If it's
         a C{ResultsProxy} and possibly an implementor of C{IConsumer},
-        returned a (deferred) instance of Deferator or couples your
+        returns a (deferred) instance of Deferator or couples your
         consumer to an IterationProducer.
 
         You can supply a connection to be closed after iterations are
@@ -591,6 +638,7 @@ class AccessBroker(object):
         yield sh
         sh.close()
 
+    @wait
     @defer.inlineCallbacks
     def selectorator(self, selectObj, consumer=None, de=None, N=1):
         """
@@ -657,6 +705,7 @@ class AccessBroker(object):
         kw['asList'] = True
         return self.execute(SA.text(sqlText), **kw)
 
+    @wait
     @defer.inlineCallbacks
     def produceRows(self, f, iterator, table, colName, **kw):
         """
@@ -694,7 +743,8 @@ class AccessBroker(object):
             p.produceItem(f, x)
         result = yield p.stop()
         defer.returnValue(result)
-    
+
+    @wait
     def deferToQueue(self, func, *args, **kw):
         """
         Dispatches I{callable(*args, **kw)} as a task via the like-named
@@ -706,6 +756,9 @@ class AccessBroker(object):
         value should be an integer where 0 is normal scheduling,
         negative numbers are higher priority, and positive numbers are
         lower priority.
+
+        There will be no shutdown of my queue until the deferred
+        result is obtained.
         
         @keyword niceness: Scheduling niceness, an integer between -20
           and 20, with lower numbers having higher scheduling priority

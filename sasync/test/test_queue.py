@@ -50,6 +50,7 @@ class TestFactory(TestCase):
         self.assertEqual(q, qGlobal)
         qDefault = yield qf()
         self.assertEqual(qDefault, qGlobal)
+        yield q.shutdown()
 
     @defer.inlineCallbacks
     def test_setAndGet(self):
@@ -58,5 +59,5 @@ class TestFactory(TestCase):
         q1 = yield qf(url)
         q2 = yield qf(url)
         self.assertEqual(q1, q2)
-        
+        yield q1.shutdown()
         

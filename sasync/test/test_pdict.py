@@ -38,7 +38,7 @@ from sasync.test.testbase import deferToDelay, TestCase
 
 
 ID = 341
-VERBOSE = False
+VERBOSE = True
 
 
 URL = "sqlite://"
