@@ -493,9 +493,7 @@ class AccessBroker(object):
             if self.q.isRunning():
                 with self.lock.context() as d:
                     yield d
-            print "DSD-1a"
             yield self.qFactory.kill(self.q)
-            print "DSD-1b"
             # Calling this via the queue is a problem if the
             # queue is shared and has been shut down. But
             # calling it in the main thread seems to work
