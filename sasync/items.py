@@ -27,7 +27,7 @@ Dictionary-like objects with behind-the-scenes database persistence.
 
 L{Items} provides a public interface for non-blocking database access
 to persistently stored name:value items within a uniquely-identified
-group, e.g., for a persistent dictionary using L{pdict.PersistentDict}.
+group.
 """
 
 # Imports
@@ -52,19 +52,18 @@ class Transactor(AccessBroker):
     """
     I do the hands-on work of non-blocking database access for the
     persistence of C{name:value} items within a uniquely-identified
-    group, e.g., for a persistent dictionary using
-    L{pdict.PersistentDict}.
+    group.
 
     My methods return Twisted C{Deferred} instances to the results of
     their database accesses rather than forcing the client code to
     block while the database access is being completed.
+
+    Construct me for the items of a particular group uniquely identified
+    by the supplied integer I{ID}, optionally using a particular database
+    connection to I{url} with any supplied keywords.
     """
     def __init__(self, ID, *url, **kw):
-        """
-        Instantiates me for the items of a particular group uniquely identified
-        by the supplied integer I{ID}, optionally using a particular database
-        connection to I{url} with any supplied keywords.
-        """
+        """Constructor"""
         if not isinstance(ID, int):
             raise TypeError("Item IDs must be integers")
         self.groupID = ID
@@ -87,7 +86,7 @@ class Transactor(AccessBroker):
     @transact
     def load(self, name):
         """
-        Item load transaction
+        Item load transaction.
         """
         items = self.sasync_items
         if not self.s('load'):
@@ -103,7 +102,7 @@ class Transactor(AccessBroker):
     @transact
     def loadAll(self):
         """
-        Load all my items, returing a C{name:value} dict
+        Loads all my items, returning a C{name:value} dict.
         """
         items = self.sasync_items
         if not self.s('load_all'):
@@ -119,7 +118,7 @@ class Transactor(AccessBroker):
     @transact
     def update(self, name, value):
         """
-        Item overwrite (entry update) transaction
+        Item overwrite (entry update) transaction.
         """
         items = self.sasync_items
         u = items.update(
@@ -130,7 +129,7 @@ class Transactor(AccessBroker):
     @transact
     def insert(self, name, value):
         """
-        Item add (entry insert) transaction
+        Item add (entry insert) transaction.
         """
         self.sasync_items.insert().execute(
             group_id=self.groupID, name=name, value=value)
@@ -138,7 +137,7 @@ class Transactor(AccessBroker):
     @transact
     def delete(self, *names):
         """
-        Item(s) delete transaction
+        Item(s) delete transaction.
         """
         items = self.sasync_items
         self.sasync_items.delete(
@@ -148,7 +147,7 @@ class Transactor(AccessBroker):
     @transact
     def names(self):
         """
-        All item names loading transaction
+        All item names loading transaction.
         """
         items = self.sasync_items
         if not self.s('names'):
@@ -162,8 +161,7 @@ class Items(object):
     """
     I provide a public interface for non-blocking database access to
     persistently stored name:value items within a uniquely identified
-    group, e.g., for a persistent dictionary using
-    L{pdict.PersistentDict}.
+    group.
 
     Before you use any instance of me, you must specify the parameters
     for creating an C{SQLAlchemy} database engine. A single argument
@@ -176,21 +174,18 @@ class Items(object):
     L{queue.Factory.setGlobal} class method. Alternatively, you can
     specify an engine for one particular instance by supplying the
     parameters to my constructor.
+
+    Construct me for the items of a particular group uniquely
+    identified by the supplied hashable I{ID}. In addition to any
+    engine-specifying keywords supplied, the following is particular
+    to my constructor:
+
+    @keyword nameType: A C{type} object defining the type that each
+        name will be coerced to after being loaded as a string from
+        the database.
     """
     def __init__(self, ID, *url, **kw):
-        """
-        Instantiates me for the items of a particular group uniquely
-        identified by the supplied hashable I{ID}.
-
-        In addition to any engine-specifying keywords supplied, the following
-        are particular to this constructor:
-
-        @param ID: A hashable object that is used as my unique identifier.
-
-        @keyword nameType: A C{type} object defining the type that each name
-            will be coerced to after being loaded as a string from the
-            database.
-        """
+        """Constructor"""
         try:
             self.groupID = hash(ID)
         except:

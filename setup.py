@@ -88,8 +88,7 @@ kw['long_description'] = """
 An enhancement to the SQLAlchemy_ package that provides asynchronous,
 deferred-result access via the Twisted_ framework and an access broker
 that conveniently manages database access, table setup, and
-transactions. Included are modules for implementing persistent
-dictionaries and three-dimensional arrays.
+transactions.
 
 sAsync lets you use the use the database transaction core of the
 SQLAlchemy Python SQL toolkit in an asynchronous fashion. In addition
