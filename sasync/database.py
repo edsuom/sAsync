@@ -437,9 +437,11 @@ class AccessBroker(object):
     def startup(self):
         """
         This method runs before the first transaction to start my
-        synchronous task queue. B{Override it} to get whatever
-        pre-transaction stuff you have run in the main loop before a
-        database engine/connection is created.
+        synchronous task queue.
+
+        B{Override it} to get whatever pre-transaction stuff you have
+        run in the main loop before a database engine/connection is
+        created.
         """
         return defer.succeed(None)
 
